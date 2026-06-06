@@ -56,7 +56,7 @@ git push origin v0.2.0
 ```
 
 The `release` workflow:
-1. builds & pushes `ghcr.io/<owner>/calaworkshop-helper` (`:x.y.z`, `:x.y`, `:latest`),
+1. builds & pushes `ghcr.io/wasianman/calaworkshop-helper` (`:x.y.z`, `:x.y`, `:latest`),
 2. builds the `.c7s.zip` and attaches it to a generated GitHub Release.
 
 Bump `helper/Cargo.toml`, `extension/backend/Cargo.toml`, and

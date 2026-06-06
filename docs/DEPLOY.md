@@ -24,7 +24,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The `release` workflow publishes `ghcr.io/<owner>/calaworkshop-helper` with tags
+The `release` workflow publishes `ghcr.io/wasianman/calaworkshop-helper` with tags
 `0.1.0`, `0.1`, and `latest`, and creates a GitHub Release with the
 `dev_wasian_calaworkshop.c7s.zip` attached.
 
@@ -50,7 +50,7 @@ three changes to your existing stack:
 3. **Add the helper service**, pulling the published image:
    ```yaml
    calagopus-workshop-helper:
-     image: 'ghcr.io/<owner>/calaworkshop-helper:latest'
+     image: 'ghcr.io/wasianman/calaworkshop-helper:latest'
      container_name: calagopus-workshop-helper
      restart: unless-stopped
      environment:

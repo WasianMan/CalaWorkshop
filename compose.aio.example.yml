@@ -74,10 +74,9 @@ services:
       - '/data/calagopus/cache:/data'
 
   calagopus-workshop-helper:
-    # Pull the image published by GitHub Actions. Replace OWNER with your
-    # lowercase GitHub username/org. Make the GHCR package public (or add
-    # registry credentials in Coolify) so it can be pulled.
-    image: 'ghcr.io/OWNER/calaworkshop-helper:latest'
+    # Image published by GitHub Actions on each release tag. Make the GHCR
+    # package public (or add registry credentials in Coolify) so it can be pulled.
+    image: 'ghcr.io/wasianman/calaworkshop-helper:latest'
     # For local source builds instead, comment the image line and use:
     #   build: ./helper
     container_name: calagopus-workshop-helper

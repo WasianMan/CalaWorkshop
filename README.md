@@ -1,10 +1,8 @@
 # calaworkshop
 
-[![ci](https://github.com/OWNER/calaworkshop/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/calaworkshop/actions/workflows/ci.yml)
-[![release](https://github.com/OWNER/calaworkshop/actions/workflows/release.yml/badge.svg)](https://github.com/OWNER/calaworkshop/actions/workflows/release.yml)
+[![ci](https://github.com/WasianMan/CalaWorkshop/actions/workflows/ci.yml/badge.svg)](https://github.com/WasianMan/CalaWorkshop/actions/workflows/ci.yml)
+[![release](https://github.com/WasianMan/CalaWorkshop/actions/workflows/release.yml/badge.svg)](https://github.com/WasianMan/CalaWorkshop/actions/workflows/release.yml)
 [![license: MIT + Commons Clause](https://img.shields.io/badge/license-MIT%20%2B%20Commons%20Clause-blue.svg)](./LICENSE)
-
-> Replace `OWNER` in the badge URLs above with your GitHub username/org after you push.
 
 A **Steam Workshop downloader for [Calagopus](https://calagopus.com)**, shipped as a
 panel **extension** (`dev.wasian.calaworkshop`) plus a small **SteamCMD helper**
@@ -43,10 +41,10 @@ You need the Calagopus **heavy** image (`:heavy`/`:heavy-aio`) — the regular i
 can't compile extensions. Then:
 
 1. Add the helper service to your compose and pull its published image
-   (`ghcr.io/OWNER/calaworkshop-helper:latest`).
+   (`ghcr.io/wasianman/calaworkshop-helper:latest`).
 2. Switch the panel to the heavy image and add the four build mounts.
 3. Drop `dev_wasian_calaworkshop.c7s.zip` (from the latest
-   [Release](https://github.com/OWNER/calaworkshop/releases)) into the panel's
+   [Release](https://github.com/WasianMan/CalaWorkshop/releases)) into the panel's
    `/app/extensions` mount and restart.
 4. Configure the helper URL/token and game presets in the admin panel.
 

@@ -96,7 +96,7 @@ calaworkshop/
 
 ## Status / roadmap
 
-**Current: `v0.1.0` — alpha.** Functional end-to-end, but expect rough edges.
+**Current: `v0.1.2` — alpha.** Functional end-to-end, but expect rough edges.
 
 Working: per-server Workshop tab; paste URL/ID → download → Wings-pull install; job
 tracking; installed-content list + delete; admin config with encrypted secrets;

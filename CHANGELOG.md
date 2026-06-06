@@ -5,6 +5,22 @@ All notable changes to this project are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [0.1.2]
+
+### Security
+- Restricted linked Steam account management and account-backed downloads to admins
+  with `calaworkshop.configure` until per-user Steam account ownership is enforced.
+- Added shared validation for server install/list/delete paths, target file names,
+  and Steam account labels to reject traversal/control-character inputs before
+  calling Wings or the helper.
+
+### Fixed
+- Fixed backend install-time compile errors caused by `helper_url` settings
+  deserialization returning `CompactString`.
+- Removed backend warnings for unused imports and unnecessary mutable bindings.
+- Removed accidentally committed build logs and ignored future `*.remove.*` scratch
+  logs.
+
 ## [0.1.1]
 
 ### Fixed

@@ -14,6 +14,7 @@ use std::sync::Arc;
 mod helper;
 mod routes;
 mod settings;
+mod validation;
 
 #[derive(Default)]
 pub struct ExtensionStruct;

@@ -133,7 +133,11 @@ impl<'a> HelperClient<'a> {
 
     pub async fn delete_account(&self, label: &str) -> Result<(), anyhow::Error> {
         self.client
-            .delete(format!("{}/accounts/{}", self.base_url, urlencoding_encode(label)))
+            .delete(format!(
+                "{}/accounts/{}",
+                self.base_url,
+                urlencoding_encode(label)
+            ))
             .bearer_auth(&self.token)
             .send()
             .await?

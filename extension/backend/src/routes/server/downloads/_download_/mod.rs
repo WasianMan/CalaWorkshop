@@ -42,12 +42,9 @@ mod get {
         let settings = state.settings.get().await?;
         let ext: &crate::settings::ExtensionSettingsData = settings.find_extension_settings()?;
 
-        let helper = crate::helper::HelperClient::new(
-            &state.client,
-            &ext.helper_url,
-            &ext.helper_token,
-        )
-        .ok_or_else(|| ApiResponse::error("workshop helper is not configured"))?;
+        let helper =
+            crate::helper::HelperClient::new(&state.client, &ext.helper_url, &ext.helper_token)
+                .ok_or_else(|| ApiResponse::error("workshop helper is not configured"))?;
 
         let job = helper.get_job(download).await?;
 

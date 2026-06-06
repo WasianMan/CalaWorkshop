@@ -1,12 +1,11 @@
 //! User-scoped Steam account linking. These proxy the helper's `/accounts` API.
 //!
-//! v1 note: this is a thin proxy suitable for a single-admin panel — any user
-//! with the `calaworkshop.link-steam` permission can manage helper accounts.
-//! Per-user ownership scoping (which Calagopus user owns which label) is a
-//! Phase 5 item and would use the `*_steam_links` migration table.
+//! v1 note: helper accounts are global cached SteamCMD sessions. Until per-user
+//! ownership is wired through the `*_steam_links` migration table, management is
+//! restricted to admins with `calaworkshop.configure`.
 
 use super::State;
-use axum::{extract::Path, http::StatusCode, routing};
+use axum::{http::StatusCode, routing};
 use serde::Deserialize;
 use shared::{
     GetState,
@@ -27,7 +26,7 @@ fn helper_from<'a>(
 
 /// `GET /steam/accounts` — list linked accounts known to the helper.
 async fn list(state: GetState, permissions: GetPermissionManager) -> ApiResponseResult {
-    permissions.has_user_permission("calaworkshop.link-steam")?;
+    permissions.has_admin_permission("calaworkshop.configure")?;
 
     let settings = state.settings.get().await?;
     let ext: &crate::settings::ExtensionSettingsData = settings.find_extension_settings()?;
@@ -53,11 +52,12 @@ async fn login(
     permissions: GetPermissionManager,
     shared::Payload(data): shared::Payload<LoginPayload>,
 ) -> ApiResponseResult {
-    permissions.has_user_permission("calaworkshop.link-steam")?;
+    permissions.has_admin_permission("calaworkshop.configure")?;
 
     if data.label.trim().is_empty() || data.username.trim().is_empty() {
         return Err(ApiResponse::error("label and username are required"));
     }
+    crate::validation::validate_account_label(data.label.trim())?;
 
     let settings = state.settings.get().await?;
     let ext: &crate::settings::ExtensionSettingsData = settings.find_extension_settings()?;

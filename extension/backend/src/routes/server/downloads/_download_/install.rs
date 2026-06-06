@@ -41,36 +41,27 @@ mod post {
     pub async fn route(
         state: GetState,
         permissions: GetPermissionManager,
-        mut server: GetServer,
+        server: GetServer,
         activity_logger: GetServerActivityLogger,
         Path((_server, download)): Path<(uuid::Uuid, uuid::Uuid)>,
         shared::Payload(data): shared::Payload<Payload>,
     ) -> ApiResponseResult {
         permissions.has_server_permission("workshop.install")?;
 
-        let install_path = data.install_path.trim().trim_start_matches('/').to_string();
-        if install_path.is_empty() || install_path.split('/').any(|seg| seg == "..") {
-            return Err(ApiResponse::error("invalid install path"));
-        }
+        let install_path = crate::validation::normalize_server_path(&data.install_path)?;
 
         let settings = state.settings.get().await?;
         let ext: &crate::settings::ExtensionSettingsData = settings.find_extension_settings()?;
 
-        let helper = crate::helper::HelperClient::new(
-            &state.client,
-            &ext.helper_url,
-            &ext.helper_token,
-        )
-        .ok_or_else(|| ApiResponse::error("workshop helper is not configured"))?;
+        let helper =
+            crate::helper::HelperClient::new(&state.client, &ext.helper_url, &ext.helper_token)
+                .ok_or_else(|| ApiResponse::error("workshop helper is not configured"))?;
 
         let job = helper.get_job(download).await?;
         if job.state != "ready" {
-            return ApiResponse::error(format!(
-                "download is not ready (state: {})",
-                job.state
-            ))
-            .with_status(StatusCode::CONFLICT)
-            .ok();
+            return ApiResponse::error(format!("download is not ready (state: {})", job.state))
+                .with_status(StatusCode::CONFLICT)
+                .ok();
         }
 
         let file_name = job

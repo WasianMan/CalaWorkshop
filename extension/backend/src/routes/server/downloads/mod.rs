@@ -47,21 +47,29 @@ mod post {
         permissions.has_server_permission("workshop.install")?;
 
         if data.app_id == 0 || data.workshop_id == 0 {
-            return Err(ApiResponse::error("app_id and workshop_id must be positive"));
+            return Err(ApiResponse::error(
+                "app_id and workshop_id must be positive",
+            ));
         }
 
         let settings = state.settings.get().await?;
         let ext: &crate::settings::ExtensionSettingsData = settings.find_extension_settings()?;
 
-        let helper = crate::helper::HelperClient::new(
-            &state.client,
-            &ext.helper_url,
-            &ext.helper_token,
-        )
-        .ok_or_else(|| ApiResponse::error("workshop helper is not configured"))?;
+        let helper =
+            crate::helper::HelperClient::new(&state.client, &ext.helper_url, &ext.helper_token)
+                .ok_or_else(|| ApiResponse::error("workshop helper is not configured"))?;
 
-        // Anonymous by default unless the caller picked a linked account.
-        let account = data.account.filter(|a| !a.trim().is_empty());
+        // Anonymous by default unless the caller picked a linked account. Linked
+        // helper sessions are currently global, so account-backed downloads stay
+        // admin-only until the steam_links ownership table is enforced.
+        let account = data.account.and_then(|a| {
+            let label = a.trim().to_string();
+            (!label.is_empty()).then_some(label)
+        });
+        if let Some(label) = &account {
+            permissions.has_admin_permission("calaworkshop.configure")?;
+            crate::validation::validate_account_label(label)?;
+        }
 
         let resp = helper
             .start_download(&crate::helper::DownloadRequest {

@@ -18,6 +18,9 @@ target/
 
 # Logs
 *.log
+.remove.*
+*.remove.*
+*.remove.txt
 
 # OS / editor cruft
 .DS_Store

@@ -27,17 +27,18 @@ struct ListQuery {
 async fn list(
     state: GetState,
     permissions: GetPermissionManager,
-    mut server: GetServer,
+    server: GetServer,
     Path(_server): Path<uuid::Uuid>,
     Query(query): Query<ListQuery>,
 ) -> ApiResponseResult {
     permissions.has_server_permission("workshop.read")?;
+    let path = crate::validation::normalize_server_path(&query.path)?;
 
     let node = server.node.fetch_cached(&state.database).await?;
     let api = node.api_client(&state.database).await?;
 
     let entries = api
-        .get_servers_server_files_list_directory(server.uuid, query.path.trim_start_matches('/'))
+        .get_servers_server_files_list_directory(server.uuid, path.as_str())
         .await?;
 
     ApiResponse::new_serialized(serde_json::json!({ "entries": entries })).ok()
@@ -55,7 +56,7 @@ struct DeletePayload {
 async fn remove(
     state: GetState,
     permissions: GetPermissionManager,
-    mut server: GetServer,
+    server: GetServer,
     Path(_server): Path<uuid::Uuid>,
     shared::Payload(data): shared::Payload<DeletePayload>,
 ) -> ApiResponseResult {
@@ -63,6 +64,10 @@ async fn remove(
 
     if data.files.is_empty() {
         return Err(ApiResponse::error("no files specified"));
+    }
+    let path = crate::validation::normalize_server_path(&data.path)?;
+    for file in &data.files {
+        crate::validation::validate_file_name(file)?;
     }
 
     let node = server.node.fetch_cached(&state.database).await?;
@@ -72,7 +77,7 @@ async fn remove(
         .post_servers_server_files_delete(
             server.uuid,
             &wings_api::servers_server_files_delete::post::RequestBody {
-                root: data.path.trim_start_matches('/').into(),
+                root: path.into(),
                 files: data.files,
             },
         )

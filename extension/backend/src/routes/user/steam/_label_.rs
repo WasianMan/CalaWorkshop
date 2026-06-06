@@ -13,7 +13,8 @@ async fn remove(
     permissions: GetPermissionManager,
     Path(label): Path<String>,
 ) -> ApiResponseResult {
-    permissions.has_user_permission("calaworkshop.link-steam")?;
+    permissions.has_admin_permission("calaworkshop.configure")?;
+    crate::validation::validate_account_label(&label)?;
 
     let settings = state.settings.get().await?;
     let ext: &crate::settings::ExtensionSettingsData = settings.find_extension_settings()?;

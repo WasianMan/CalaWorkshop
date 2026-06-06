@@ -77,7 +77,10 @@ impl SettingsSerializeExt for ExtensionSettingsData {
                 "helper_token",
                 base32::encode(
                     Alphabet::Z,
-                    database.encrypt(self.helper_token.clone()).await?.as_slice(),
+                    database
+                        .encrypt(self.helper_token.clone())
+                        .await?
+                        .as_slice(),
                 ),
             )
             .write_raw_setting(
@@ -107,6 +110,7 @@ impl SettingsDeserializeExt for ExtensionSettingsDataDeserializer {
 
         let helper_url = deserializer
             .take_raw_setting("helper_url")
+            .map(|s| s.to_string())
             .unwrap_or(defaults.helper_url);
 
         let helper_token = match deserializer.take_raw_setting("helper_token") {

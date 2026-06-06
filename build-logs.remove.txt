@@ -1,0 +1,507 @@
+detected cargo: cargo 1.96.0 (30a34c682 2026-05-25)
+detected node:  24.16.0
+detected pnpm:  11.5.0
+successfully resynced internal extension list.
+recalculating dependencies...
+Scope: all 2 workspace projects
+Already up to date
+Done in 345ms using pnpm v11.5.0
+
+   ╭─────────────────────────────────────────╮
+   │                                         │
+   │   Update available! 11.5.0 → 11.5.2.    │
+   │   Changelog: https://pnpm.io/v/11.5.2   │
+   │    To update, run: pnpm add -g pnpm     │
+   │                                         │
+   ╰─────────────────────────────────────────╯
+
+successfully removed 0 extensions.
+detected pnpm:  11.5.0
+detected node:  24.16.0
+extension has database migrations...
+1 migrations found:
+- 20260606000000_init
+
+extracted migrations to database/extension-migrations/dev_wasian_calaworkshop
+successfully resynced internal extension list.
+successfully added Calagopus Workshop
+make sure to run panel-rs extensions apply to apply its changes
+successfully resynced internal extension list.
+detected cargo: cargo 1.96.0 (30a34c682 2026-05-25)
+detected node:  24.16.0
+detected pnpm:  11.5.0
+
+┏━━━━━━━━━━━━━━━━━━━┓
+┃ building frontend ┃
+┗━━━━━━━━━━━━━━━━━━━┛
+installing dependencies...
+Scope: all 3 workspace projects
+? Verifying lockfile against supply-chain policies (533 entries)...
+✓ Lockfile passes supply-chain policies (533 entries in 2s)
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Progress: resolved 180, reused 166, downloaded 0, added 0
+Progress: resolved 471, reused 366, downloaded 5, added 0
+Already up to date
+Progress: resolved 533, reused 430, downloaded 5, added 0, done
+
+Done in 5.3s using pnpm v11.5.0
+
+building frontend...
+$ cross-env FAST_REACT_COMPILER=true pnpm build
+$ pnpm build:translations && vite build
+$ tsx build-translations.mts
+vite v8.0.14 building client environment for production...
+[2K
+transforming...
+/fonts/Helvetica.woff referenced in /fonts/Helvetica.woff didn't resolve at build time, it will remain unchanged to be resolved at runtime
+✓ 9844 modules transformed.
+rendering chunks...
+[vite-plugin-static-copy] Copied 377 items.
+computing gzip size...
+dist/index.html                                      1.09 kB │ gzip:   0.46 kB
+dist/assets/xk.BYv0suRd.svg                          4.41 kB │ gzip:   1.79 kB
+dist/assets/pg.DyegztYg.svg                          4.60 kB │ gzip:   2.08 kB
+dist/assets/mz.CF7zaMsX.svg                          4.75 kB │ gzip:   1.91 kB
+dist/assets/ar.CWtKlAYw.svg                          4.88 kB │ gzip:   1.93 kB
+dist/assets/br.CccTb9pm.svg                          4.92 kB │ gzip:   1.33 kB
+dist/assets/cc.QjCBzzPx.svg                          4.99 kB │ gzip:   2.38 kB
+dist/assets/gi.BUfWXyGe.svg                          5.86 kB │ gzip:   2.44 kB
+dist/assets/tc.B8-FA4gv.svg                          6.28 kB │ gzip:   2.79 kB
+dist/assets/ug.BZUTqvuN.svg                          6.57 kB │ gzip:   2.49 kB
+dist/assets/sz.Dt5pQRU1.svg                          6.60 kB │ gzip:   2.94 kB
+dist/assets/er.BCWAI8fQ.svg                          6.69 kB │ gzip:   3.30 kB
+dist/assets/aq.C1SLPBnk.svg                          7.19 kB │ gzip:   2.39 kB
+dist/assets/pf.Dewn0ZP6.svg                          7.54 kB │ gzip:   3.29 kB
+dist/assets/gq.v4UcjoO2.svg                          8.13 kB │ gzip:   3.39 kB
+dist/assets/al.vChtNAkY.svg                          8.62 kB │ gzip:   4.02 kB
+dist/assets/ms.DSewttCx.svg                          8.91 kB │ gzip:   4.08 kB
+dist/assets/cy.DtkfSAxu.svg                         10.05 kB │ gzip:   4.66 kB
+dist/assets/lb.DkHhz7ji.svg                         10.38 kB │ gzip:   4.88 kB
+dist/assets/dm.hyEUt-MS.svg                         10.55 kB │ gzip:   2.84 kB
+dist/assets/kz.5PWLORZF.svg                         10.95 kB │ gzip:   5.11 kB
+dist/assets/je.Ce1p_Uqx.svg                         11.37 kB │ gzip:   4.30 kB
+dist/assets/zm.Dl_5B-hG.svg                         12.94 kB │ gzip:   5.55 kB
+dist/assets/pt.BQZAJ4VS.svg                         12.99 kB │ gzip:   5.70 kB
+dist/assets/kh.DEX2CRL7.svg                         13.13 kB │ gzip:   4.75 kB
+dist/assets/kg.DLmWPqwS.svg                         14.22 kB │ gzip:   5.30 kB
+dist/assets/vg.xAKHeHkF.svg                         14.61 kB │ gzip:   6.40 kB
+dist/assets/pn.DkqO1pRp.svg                         14.65 kB │ gzip:   6.10 kB
+dist/assets/gu.Bsh711f2.svg                         15.49 kB │ gzip:   6.88 kB
+dist/assets/gb-wls.Ce0GSoxD.svg                     16.79 kB │ gzip:   7.60 kB
+dist/assets/vi.C6SCTl6Z.svg                         20.00 kB │ gzip:   6.73 kB
+dist/assets/io.CglqqcSQ.svg                         22.46 kB │ gzip:   6.56 kB
+dist/assets/om.CLTdu4Kd.svg                         22.50 kB │ gzip:   5.35 kB
+dist/assets/lk.BycuMDG1.svg                         22.55 kB │ gzip:  10.60 kB
+dist/assets/mt.ClvhnkK-.svg                         22.86 kB │ gzip:   9.39 kB
+dist/assets/eg.G_GzkmeR.svg                         23.40 kB │ gzip:   9.52 kB
+dist/assets/li.BD74mf49.svg                         23.48 kB │ gzip:   8.66 kB
+dist/assets/nf.D-yq-mQc.svg                         23.58 kB │ gzip:   9.14 kB
+dist/assets/bn.CdaB_57T.svg                         24.20 kB │ gzip:  11.05 kB
+dist/assets/sa.DoxRYbLs.svg                         26.08 kB │ gzip:  10.79 kB
+dist/assets/im.D2SpJGdr.svg                         29.34 kB │ gzip:  10.33 kB
+dist/assets/md.wo-petEG.svg                         29.35 kB │ gzip:  12.43 kB
+dist/assets/bm.Xu1LFuP_.svg                         31.81 kB │ gzip:  11.60 kB
+dist/assets/ht.DLVvhBrE.svg                         32.10 kB │ gzip:  13.11 kB
+dist/assets/py.H9tYfIQG.svg                         34.99 kB │ gzip:  14.69 kB
+dist/assets/mp.cMu8R2z2.svg                         37.71 kB │ gzip:  15.06 kB
+dist/assets/tm.Db3T6zNU.svg                         39.99 kB │ gzip:  13.35 kB
+dist/assets/ni.d0vSgB56.svg                         40.30 kB │ gzip:  16.93 kB
+dist/assets/fj.D2Ggc6Cu.svg                         41.69 kB │ gzip:  18.35 kB
+dist/assets/gs.Dt8B5T4K.svg                         42.77 kB │ gzip:  16.05 kB
+dist/assets/bl.BtCuyGZN.svg                         42.82 kB │ gzip:  15.66 kB
+dist/assets/sx.CV42uOyK.svg                         43.72 kB │ gzip:   8.11 kB
+dist/assets/va.SBgab1j3.svg                         47.33 kB │ gzip:  20.15 kB
+dist/assets/gt.CeAl8XAg.svg                         47.78 kB │ gzip:  19.52 kB
+dist/assets/as.Bf_HPSBb.svg                         47.86 kB │ gzip:  19.63 kB
+dist/assets/ad.DUAJJNMQ.svg                         48.08 kB │ gzip:  19.24 kB
+dist/assets/bt.DO9jv4i2.svg                         48.22 kB │ gzip:  17.39 kB
+dist/assets/es.CGzi5tm8.svg                         50.14 kB │ gzip:  18.18 kB
+dist/assets/ky.hQgDRKV7.svg                         57.62 kB │ gzip:  20.36 kB
+dist/assets/me.D1o7HYxF.svg                         59.59 kB │ gzip:  24.67 kB
+dist/assets/hr.Bwpfjup0.svg                         68.26 kB │ gzip:  29.21 kB
+dist/assets/cr.DMBdYWh-.svg                         70.38 kB │ gzip:  22.19 kB
+dist/assets/bz.ChzgsoFu.svg                         75.61 kB │ gzip:  30.77 kB
+dist/assets/sm.DNDcfXcj.svg                         79.30 kB │ gzip:  30.56 kB
+dist/assets/pe.Dyi8xky8.svg                        116.82 kB │ gzip:  45.32 kB
+dist/assets/fk.CdzrCF6h.svg                        137.17 kB │ gzip:  43.08 kB
+dist/assets/rs.CmHX9HG2.svg                        141.17 kB │ gzip:  54.20 kB
+dist/assets/do.CIpbT2Gb.svg                        147.43 kB │ gzip:  45.74 kB
+dist/assets/mx.BuKnwk5v.svg                        159.73 kB │ gzip:  67.09 kB
+dist/assets/ec.Bkf3UnZr.svg                        176.99 kB │ gzip:  64.35 kB
+dist/assets/af.DZrgDBeM.svg                        190.22 kB │ gzip:  84.16 kB
+dist/assets/bo.bD5ZoQGQ.svg                        234.76 kB │ gzip:  68.95 kB
+dist/assets/sv.Buyhzge0.svg                        241.68 kB │ gzip:  65.12 kB
+dist/assets/ServerConsole.CKQNHKhT.css               4.18 kB │ gzip:   1.06 kB
+dist/assets/index.Dr9Tv8pE.css                     104.67 kB │ gzip:  16.70 kB
+dist/assets/common.CNP-r2Z7.css                    295.84 kB │ gzip:  34.63 kB
+dist/assets/ad.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ae.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/af.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ag.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ai.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/al.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/am.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/an.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ao.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/aq.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ar.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/as.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/at.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/au.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/aw.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ax.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/az.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ba.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bb.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bd.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/be.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bf.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bg.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bh.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bi.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bj.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bl.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bm.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bn.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bo.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bq.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/br.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bs.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bt.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bv.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bw.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/by.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/bz.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ca.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cc.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cd.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cf.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cg.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ch.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ci.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ck.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cl.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cm.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cn.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/co.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cr.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cu.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cv.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cw.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cx.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cy.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/cz.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/de.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/dj.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/dk.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/dm.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/do.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/dz.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ec.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ee.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/eg.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/eh.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/er.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/es.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/et.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/eu.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/fi.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/fj.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/fk.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/fm.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/fo.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/fr.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ga.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gb-eng.BvRk9kiK.js                       0.00 kB │ gzip:   0.02 kB
+dist/assets/gb-nir.BvRk9kiK.js                       0.00 kB │ gzip:   0.02 kB
+dist/assets/gb-sct.BvRk9kiK.js                       0.00 kB │ gzip:   0.02 kB
+dist/assets/gb-wls.BvRk9kiK.js                       0.00 kB │ gzip:   0.02 kB
+dist/assets/gb.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gd.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ge.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gf.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gg.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gh.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gi.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gl.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gm.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gn.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gp.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gq.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gr.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gs.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gt.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gu.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gw.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/gy.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/hk.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/hm.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/hn.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/hr.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ht.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/hu.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/id.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ie.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/il.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/im.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/in.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/io.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/iq.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ir.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/is.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/it.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/je.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/jm.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/jo.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/jp.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ke.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/kg.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/kh.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ki.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/km.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/kn.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/kp.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/kr.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/kw.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ky.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/kz.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/la.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/lb.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/lc.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/li.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/lk.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/lr.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ls.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/lt.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/lu.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/lv.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ly.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ma.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mc.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/md.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/me.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mf.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mg.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mh.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mk.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ml.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mm.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mn.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mo.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mp.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mq.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mr.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ms.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mt.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mu.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mv.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mw.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mx.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/my.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/mz.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/na.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/nc.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ne.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/nf.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ng.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ni.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/nl.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/no.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/np.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/nr.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/nu.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/nz.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/om.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/pa.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/pe.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/pf.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/pg.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ph.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/pk.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/pl.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/pm.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/pn.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/pr.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ps.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/pt.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/pw.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/py.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/qa.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/re.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ro.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/rs.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ru.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/rw.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sa.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sb.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sc.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sd.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/se.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sg.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sh.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/si.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sj.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sk.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sl.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sm.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sn.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/so.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sr.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ss.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/st.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sv.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sx.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sy.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/sz.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/tc.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/td.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/tf.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/tg.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/th.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/tj.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/tk.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/tl.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/tm.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/tn.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/to.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/tr.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/tt.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/tv.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/tw.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/tz.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ua.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ug.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/um.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/us.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/uy.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/uz.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/va.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/vc.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ve.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/vg.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/vi.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/vn.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/vu.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/wf.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ws.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/xk.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/ye.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/yt.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/za.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/zm.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/zw.BvRk9kiK.js                           0.00 kB │ gzip:   0.02 kB
+dist/assets/kh.BHRwp44o.js                           0.07 kB │ gzip:   0.09 kB
+dist/assets/ua.ovgE8wmt.js                           0.07 kB │ gzip:   0.09 kB
+dist/assets/getServers.Dx1JwUJB.js                   0.22 kB │ gzip:   0.19 kB
+dist/assets/register.oW5FksK0.js                     0.27 kB │ gzip:   0.18 kB
+dist/assets/updateAccount.mdoaxPLB.js                0.27 kB │ gzip:   0.21 kB
+dist/assets/json.DS4EA3dC.js                         0.41 kB │ gzip:   0.31 kB
+dist/assets/ThemeIcon.B7X79AdR.js                    0.90 kB │ gzip:   0.50 kB
+dist/assets/postSecurityKeyChallenge.D04DcO3V.js     1.00 kB │ gzip:   0.52 kB
+dist/assets/ip.DH0j2A-d.js                           1.20 kB │ gzip:   0.59 kB
+dist/assets/rolldown-runtime.CMxvf4Kt.js             1.21 kB │ gzip:   0.67 kB
+dist/assets/Copyright.CfILIXDC.js                    1.25 kB │ gzip:   0.66 kB
+dist/assets/ServerSwitcher.D-l3rzzF.js               1.69 kB │ gzip:   0.88 kB
+dist/assets/useWebsocketEvent.BFj-Ilu_.js            1.79 kB │ gzip:   0.80 kB
+dist/assets/yaml.1XF8XcZB.js                         1.90 kB │ gzip:   0.82 kB
+dist/assets/locales.C-FTH4qx.js                      2.10 kB │ gzip:   0.87 kB
+dist/assets/zh-CN.BWm_rx0a.js                        2.44 kB │ gzip:   1.21 kB
+dist/assets/tr.YP6Yl_62.js                           2.48 kB │ gzip:   1.09 kB
+dist/assets/zh-TW.CdiganoP.js                        2.48 kB │ gzip:   1.18 kB
+dist/assets/ms.C-Ppv4hM.js                           2.48 kB │ gzip:   1.04 kB
+dist/assets/en.D71PKb1X.js                           2.49 kB │ gzip:   1.04 kB
+dist/assets/no.BohwMUfV.js                           2.49 kB │ gzip:   1.07 kB
+dist/assets/ota.CyNkWezx.js                          2.50 kB │ gzip:   1.13 kB
+dist/assets/fr-CA.DiV-zyrQ.js                        2.53 kB │ gzip:   1.08 kB
+dist/assets/sl.Ct9sMo6O.js                           2.53 kB │ gzip:   1.09 kB
+dist/assets/az.CDMP7Hye.js                           2.53 kB │ gzip:   1.09 kB
+dist/assets/pt.CgBA3OtQ.js                           2.54 kB │ gzip:   1.11 kB
+dist/assets/it.BHgEAwfq.js                           2.56 kB │ gzip:   1.06 kB
+dist/assets/eo.YS1JhbEm.js                           2.57 kB │ gzip:   1.07 kB
+dist/assets/de.CErUeFid.js                           2.57 kB │ gzip:   1.10 kB
+dist/assets/id.CykZg6gm.js                           2.58 kB │ gzip:   1.06 kB
+dist/assets/nl.CFHHZ9Bu.js                           2.59 kB │ gzip:   1.10 kB
+dist/assets/is.FTkirWkc.js                           2.60 kB │ gzip:   1.14 kB
+dist/assets/sv.B0_Npjdp.js                           2.60 kB │ gzip:   1.11 kB
+dist/assets/ca.B_DeGKcD.js                           2.60 kB │ gzip:   1.11 kB
+dist/assets/da.BKPaOuu-.js                           2.62 kB │ gzip:   1.14 kB
+dist/assets/hu.Czx9hkwg.js                           2.68 kB │ gzip:   1.14 kB
+dist/assets/yo.CvWF6ekl.js                           2.68 kB │ gzip:   1.15 kB
+dist/assets/ro.f2SXvkcl.js                           2.68 kB │ gzip:   1.15 kB
+dist/assets/uz.DsKOLcEK.js                           2.69 kB │ gzip:   1.12 kB
+dist/assets/cs.-ELfXlzK.js                           2.72 kB │ gzip:   1.16 kB
+dist/assets/fi.BJX3d7C7.js                           2.74 kB │ gzip:   1.15 kB
+dist/assets/vi.ceoYmyJr.js                           2.76 kB │ gzip:   1.18 kB
+dist/assets/ko.qZdmPDy1.js                           2.76 kB │ gzip:   1.24 kB
+dist/assets/hr.DDF78FoZ.js                           2.77 kB │ gzip:   1.20 kB
+dist/assets/ps.z24Pazn4.js                           2.77 kB │ gzip:   1.22 kB
+dist/assets/ja.DzKjSQVp.js                           2.85 kB │ gzip:   1.25 kB
+dist/assets/fr.D084LX3I.js                           2.88 kB │ gzip:   1.25 kB
+dist/assets/pl.CYQ6gOkW.js                           2.92 kB │ gzip:   1.18 kB
+dist/assets/fa.DwBqoMdg.js                           2.99 kB │ gzip:   1.22 kB
+dist/assets/es.zHSWddWf.js                           3.04 kB │ gzip:   1.30 kB
+dist/assets/mk.CZiuDmLH.js                           3.12 kB │ gzip:   1.28 kB
+dist/assets/ar.Fcpy-KdN.js                           3.18 kB │ gzip:   1.30 kB
+dist/assets/ur.DGR9tiQp.js                           3.22 kB │ gzip:   1.29 kB
+dist/assets/uk.m0Y_W77S.js                           3.40 kB │ gzip:   1.33 kB
+dist/assets/bg.BIw0I2iG.js                           3.45 kB │ gzip:   1.32 kB
+dist/assets/el.C16nfqQf.js                           3.48 kB │ gzip:   1.34 kB
+dist/assets/hy.C-Ah_-Wa.js                           3.55 kB │ gzip:   1.41 kB
+dist/assets/be.Cd0mwFsR.js                           3.67 kB │ gzip:   1.42 kB
+dist/assets/ru.CXtIldI3.js                           3.77 kB │ gzip:   1.45 kB
+dist/assets/lt.BN9mWKXk.js                           4.08 kB │ gzip:   1.55 kB
+dist/assets/ka.0GbLW9ZN.js                           4.13 kB │ gzip:   1.33 kB
+dist/assets/km.B64r1yHW.js                           4.21 kB │ gzip:   1.34 kB
+dist/assets/th.MU0FKIZJ.js                           4.25 kB │ gzip:   1.41 kB
+dist/assets/ta.DlqJX7Qi.js                           4.32 kB │ gzip:   1.31 kB
+dist/assets/he.DBlW6Guk.js                           6.10 kB │ gzip:   1.91 kB
+dist/assets/MultiSelect.B5nbmNMk.js                 13.35 kB │ gzip:   4.96 kB
+dist/assets/updateApplicationSettings.g16pQC-f.js   20.69 kB │ gzip:   6.47 kB
+dist/assets/AuthenticationRouter.CJ2aWCa8.js        23.23 kB │ gzip:   6.14 kB
+dist/assets/getPermissions.BrgxzwOe.js              40.92 kB │ gzip:  13.49 kB
+dist/assets/ServerRouter.CiEE3Rks.js                49.93 kB │ gzip:  14.42 kB
+dist/assets/Captcha.CsjWRHgY.js                     60.84 kB │ gzip:  21.87 kB
+dist/assets/index.D_BhWtq7.js                       62.05 kB │ gzip:  19.00 kB
+dist/assets/OobeRouter.B9kWGv7h.js                  72.82 kB │ gzip:  13.89 kB
+dist/assets/chart.xpkrcSO6.js                       76.78 kB │ gzip:  26.20 kB
+dist/assets/SubNavigation.Zy3YGeSh.js               79.00 kB │ gzip:  22.25 kB
+dist/assets/TagsInput.CSAb-3Ho.js                   82.83 kB │ gzip:  28.40 kB
+dist/assets/DashboardRouter.C1hDbXh7.js            104.97 kB │ gzip:  26.49 kB
+dist/assets/VariableContainer.BfgVwzma.js          127.81 kB │ gzip:  30.60 kB
+dist/assets/user.DHNH3ols.js                       225.44 kB │ gzip:  46.18 kB
+dist/assets/ServerConsole.Bpj2jQor.js              439.45 kB │ gzip: 117.17 kB
+dist/assets/AdminRouter.Co3jh1w6.js                464.04 kB │ gzip:  90.19 kB
+dist/assets/react.DhuvqUMH.js                      626.01 kB │ gzip: 202.60 kB
+dist/assets/serverRoutes.CSBDpfaK.js               632.24 kB │ gzip: 176.31 kB
+dist/assets/common.Ce0PhFFb.js                     885.77 kB │ gzip: 267.24 kB
+
+✗ Build failed in 1.81s
+[translations] Merged 13 languages from 1 source(s) into dist/translations/
+[translations] Source: 991877 bytes → Minified: 615828 bytes
+error during build:
+Build failed with 1 error:
+
+Error: [vite]: Rolldown failed to resolve import "@/api/steam/deleteAccount.ts" from "/app/repo/frontend/extensions/dev_wasian_calaworkshop/src/pages/SteamLinkPage.tsx".
+This is most likely unintended because it can break your application at runtime.
+If you do want to externalize this module explicitly add it to
+`build.rolldownOptions.external`
+    at viteLog (file:///app/repo/frontend/node_modules/.pnpm/vite@8.0.14_@types+node@24.12.4_esbuild@0.28.0_jiti@2.7.0_tsx@4.22.3_yaml@2.9.0/node_modules/vite/dist/node/chunks/node.js:33230:57)
+    at file:///app/repo/frontend/node_modules/.pnpm/vite@8.0.14_@types+node@24.12.4_esbuild@0.28.0_jiti@2.7.0_tsx@4.22.3_yaml@2.9.0/node_modules/vite/dist/node/chunks/node.js:33266:71
+    at onwarn (file:///app/repo/frontend/node_modules/.pnpm/@vitejs+plugin-react@6.0.1_@rolldown+plugin-babel@0.2.3_@babel+core@7.29.0_@babel+runti_eeddcb6f8885d2e82e97b252b4031c01/node_modules/@vitejs/plugin-react/dist/index.js:40:7)
+    at file:///app/repo/frontend/node_modules/.pnpm/vite@8.0.14_@types+node@24.12.4_esbuild@0.28.0_jiti@2.7.0_tsx@4.22.3_yaml@2.9.0/node_modules/vite/dist/node/chunks/node.js:33266:28
+    at onRollupLog (file:///app/repo/frontend/node_modules/.pnpm/vite@8.0.14_@types+node@24.12.4_esbuild@0.28.0_jiti@2.7.0_tsx@4.22.3_yaml@2.9.0/node_modules/vite/dist/node/chunks/node.js:33261:63)
+    at onLog (file:///app/repo/frontend/node_modules/.pnpm/vite@8.0.14_@types+node@24.12.4_esbuild@0.28.0_jiti@2.7.0_tsx@4.22.3_yaml@2.9.0/node_modules/vite/dist/node/chunks/node.js:33030:4)
+    at file:///app/repo/frontend/node_modules/.pnpm/rolldown@1.0.2/node_modules/rolldown/dist/shared/rolldown-build-9MccaWPU.mjs:50:26
+    at logger (file:///app/repo/frontend/node_modules/.pnpm/rolldown@1.0.2/node_modules/rolldown/dist/shared/rolldown-build-9MccaWPU.mjs:41:3)
+    at aggregateBindingErrorsIntoJsError (file:///app/repo/frontend/node_modules/.pnpm/rolldown@1.0.2/node_modules/rolldown/dist/shared/error-B8po7KiL.mjs:48:18)
+    at unwrapBindingResult (file:///app/repo/frontend/node_modules/.pnpm/rolldown@1.0.2/node_modules/rolldown/dist/shared/error-B8po7KiL.mjs:18:128)
+    at #build (file:///app/repo/frontend/node_modules/.pnpm/rolldown@1.0.2/node_modules/rolldown/dist/shared/rolldown-build-9MccaWPU.mjs:3236:34)
+    at async buildEnvironment (file:///app/repo/frontend/node_modules/.pnpm/vite@8.0.14_@types+node@24.12.4_esbuild@0.28.0_jiti@2.7.0_tsx@4.22.3_yaml@2.9.0/node_modules/vite/dist/node/chunks/node.js:33137:64)
+    at async Object.build (file:///app/repo/frontend/node_modules/.pnpm/vite@8.0.14_@types+node@24.12.4_esbuild@0.28.0_jiti@2.7.0_tsx@4.22.3_yaml@2.9.0/node_modules/vite/dist/node/chunks/node.js:33559:19)
+    at async Object.buildApp (file:///app/repo/frontend/node_modules/.pnpm/vite@8.0.14_@types+node@24.12.4_esbuild@0.28.0_jiti@2.7.0_tsx@4.22.3_yaml@2.9.0/node_modules/vite/dist/node/chunks/node.js:33556:153)
+    at async CAC.<anonymous> (file:///app/repo/frontend/node_modules/.pnpm/vite@8.0.14_@types+node@24.12.4_esbuild@0.28.0_jiti@2.7.0_tsx@4.22.3_yaml@2.9.0/node_modules/vite/dist/node/cli.js:777:3) {
+  errors: [Getter/Setter]
+}
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.
+pnpm build:fast did not run successfully, aborting process

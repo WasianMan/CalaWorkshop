@@ -16,9 +16,9 @@ import {
 } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { httpErrorToHuman } from '@/api/axios.ts';
-import deleteAccount from '@/api/steam/deleteAccount.ts';
-import listAccounts, { type SteamAccount } from '@/api/steam/listAccounts.ts';
-import loginAccount from '@/api/steam/loginAccount.ts';
+import deleteAccount from '../api/steam/deleteAccount.ts';
+import listAccounts, { type SteamAccount } from '../api/steam/listAccounts.ts';
+import loginAccount from '../api/steam/loginAccount.ts';
 import AccountContentContainer from '@/elements/containers/AccountContentContainer.tsx';
 import { useToast } from '@/providers/ToastProvider.tsx';
 

@@ -1,5 +1,5 @@
 import { axiosInstance } from '@/api/axios.ts';
-import type { GamePreset } from '@/api/getConfig.ts';
+import type { GamePreset } from '../getConfig.ts';
 
 export type UpdateSettingsInput = {
   helperUrl?: string;

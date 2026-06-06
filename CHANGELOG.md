@@ -5,6 +5,14 @@ All notable changes to this project are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [0.1.1]
+
+### Fixed
+- Frontend build failure on install: intra-extension imports used the `@/` alias,
+  which resolves to the *panel's* `frontend/src`, not the extension's own source.
+  Switched all imports of the extension's own modules to relative paths (`@/` is now
+  used only for panel-provided modules like `@/api/axios.ts`, `@/elements/*`).
+
 ## [0.1.0] — initial
 
 ### Added

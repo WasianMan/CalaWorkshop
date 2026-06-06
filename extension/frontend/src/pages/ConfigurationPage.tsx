@@ -15,9 +15,9 @@ import {
 } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { httpErrorToHuman } from '@/api/axios.ts';
-import getSettings from '@/api/admin/getSettings.ts';
-import updateSettings from '@/api/admin/updateSettings.ts';
-import type { GamePreset } from '@/api/getConfig.ts';
+import getSettings from '../api/admin/getSettings.ts';
+import updateSettings from '../api/admin/updateSettings.ts';
+import type { GamePreset } from '../api/getConfig.ts';
 import { useToast } from '@/providers/ToastProvider.tsx';
 
 export default function ConfigurationPage() {

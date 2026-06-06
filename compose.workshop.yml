@@ -1,0 +1,47 @@
+# calaworkshop — additions to your existing Calagopus AIO compose.
+#
+# This is NOT a standalone stack. Merge these changes into your existing
+# compose.yml (the one with the `web`, `db`, `cache` services).
+#
+# Two parts:
+#   1. Edit the existing `web` service: switch to the heavy-aio image and add the
+#      four build mounts the heavy image needs (so it can compile this extension).
+#   2. Add the `calagopus-workshop-helper` service below.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# 1) CHANGES TO YOUR EXISTING `web` SERVICE
+#
+#    image: 'ghcr.io/calagopus/panel:heavy-aio'      # was :aio
+#
+#    KEEP your existing APP_ENCRYPTION_KEY value EXACTLY — changing it bricks
+#    every encrypted secret in your database.
+#
+#    Add these to the `web` service `volumes:` list (host paths created on start):
+#      - '/data/calagopus/build/binaries:/app/binaries'
+#      - '/data/calagopus/build/translations:/app/translations'
+#      - '/data/calagopus/build/extensions:/app/extensions'
+#      - '/data/calagopus/build/extension-migrations:/app/repo/database/extension-migrations'
+#
+#    The packaged dev_wasian_calaworkshop.c7s.zip goes into
+#    /data/calagopus/build/extensions, then restart the web container.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # 2) The SteamCMD helper. Not published to the host — only reachable on the
+  #    compose network as http://calagopus-workshop-helper:8090, which is the
+  #    default `helper_url` in the extension settings. Wings (bundled in the AIO
+  #    web container) pulls finished downloads from it over this network.
+  calagopus-workshop-helper:
+    build: ./helper          # or: image: 'your-registry/calaworkshop-helper:latest'
+    container_name: calagopus-workshop-helper
+    restart: unless-stopped
+    environment:
+      - TZ=America/Chicago
+      # Generate once (e.g. `openssl rand -hex 32`) and paste the SAME value into
+      # the extension's admin settings as the "Helper token".
+      - 'WORKSHOP_HELPER_TOKEN=${WORKSHOP_HELPER_TOKEN}'
+      - WORKSHOP_HELPER_BIND=0.0.0.0:8090
+      - WORKSHOP_DATA_DIR=/data
+    volumes:
+      # SteamCMD installs, cached sessions, and finished download artifacts.
+      - '/data/calagopus/workshop-helper:/data'

@@ -1,0 +1,26 @@
+# Rust build output
+target/
+**/target/
+
+# Packaged extension archive (built by CI / packaging scripts)
+/dist/
+
+# Frontend dependencies (if ever installed locally)
+**/node_modules/
+
+# Environment / secrets
+.env
+*.local.env
+!.env.example
+
+# Helper runtime data
+/helper/data/
+
+# Logs
+*.log
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

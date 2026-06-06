@@ -1,0 +1,91 @@
+# Full corrected AIO stack with the workshop helper + heavy build mounts.
+# Differences from your original:
+#   1. web image  :aio -> :heavy-aio
+#   2. web gains the FOUR /app/* build mounts (required by the heavy image so it
+#      can compile the extension; /app/extensions is where the .c7s.zip lands)
+#   3. calagopus-workshop-helper service added (correctly indented under services:)
+#
+# .env must define: POSTGRES_PASSWORD, APP_ENCRYPTION_KEY (UNCHANGED from before),
+# and WORKSHOP_HELPER_TOKEN (new — e.g. `openssl rand -hex 32`).
+
+services:
+  web:
+    image: 'ghcr.io/calagopus/panel:heavy-aio'
+    container_name: calagopus-panel
+    restart: unless-stopped
+    environment:
+      - TZ=America/Chicago
+      - 'REDIS_URL=redis://cache'
+      - 'DATABASE_URL=postgresql://panel:${POSTGRES_PASSWORD}@db/panel'
+      - DATABASE_MIGRATE=true
+      - PORT=8000
+      - AIO_BASE_WINGS_CONFIGURATION=/wings-config.yml
+      - APP_DEBUG=false
+      - APP_LOG_DIRECTORY=/var/log/calagopus
+      - APP_PRIMARY=true
+      - APP_ENABLE_WINGS_PROXY=true
+      - 'APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY}'
+      - APP_USE_DECRYPTION_CACHE=true
+      - APP_USE_INTERNAL_CACHE=true
+    labels:
+      - traefik.http.middlewares.authentik-auth@file
+    volumes:
+      - '/data/calagopus/data:/var/lib/calagopus'
+      - '/data/calagopus/logs:/var/log/calagopus'
+      - '/data/calagopus/wings-config.yml:/wings-config.yml'
+      - '/var/run/docker.sock:/var/run/docker.sock'
+      - '/var/lib/docker/containers/:/var/lib/docker/containers/'
+      - '/etc/pterodactyl:/etc/pterodactyl/'
+      - '/var/lib/pterodactyl/:/var/lib/pterodactyl/'
+      - '/var/log/pterodactyl/:/var/log/pterodactyl/'
+      - '/tmp/pterodactyl/:/tmp/pterodactyl/'
+      # --- heavy image build artifacts (NEW) ---
+      - '/data/calagopus/build/binaries:/app/binaries'
+      - '/data/calagopus/build/translations:/app/translations'
+      - '/data/calagopus/build/extensions:/app/extensions'
+      - '/data/calagopus/build/extension-migrations:/app/repo/database/extension-migrations'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    depends_on:
+      - db
+      - cache
+
+  db:
+    image: 'ghcr.io/calagopus/pgautoupgrade:18-alpine'
+    container_name: calagopus-db
+    restart: unless-stopped
+    environment:
+      - TZ=America/Chicago
+      - POSTGRES_USER=panel
+      - 'POSTGRES_PASSWORD=${POSTGRES_PASSWORD}'
+      - POSTGRES_DB=panel
+      - PGDATA=/data
+    volumes:
+      - '/data/calagopus/postgres:/data'
+
+  cache:
+    image: 'ghcr.io/calagopus/valkey:latest'
+    container_name: calagopus-cache
+    restart: unless-stopped
+    command: '--protected-mode no --save 60 1'
+    environment:
+      - TZ=America/Chicago
+    volumes:
+      - '/data/calagopus/cache:/data'
+
+  calagopus-workshop-helper:
+    # Pull the image published by GitHub Actions. Replace OWNER with your
+    # lowercase GitHub username/org. Make the GHCR package public (or add
+    # registry credentials in Coolify) so it can be pulled.
+    image: 'ghcr.io/OWNER/calaworkshop-helper:latest'
+    # For local source builds instead, comment the image line and use:
+    #   build: ./helper
+    container_name: calagopus-workshop-helper
+    restart: unless-stopped
+    environment:
+      - TZ=America/Chicago
+      - 'WORKSHOP_HELPER_TOKEN=${WORKSHOP_HELPER_TOKEN}'
+      - WORKSHOP_HELPER_BIND=0.0.0.0:8090
+      - WORKSHOP_DATA_DIR=/data
+    volumes:
+      - '/data/calagopus/workshop-helper:/data'

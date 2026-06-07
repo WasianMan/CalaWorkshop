@@ -124,6 +124,12 @@ install. See [CONTRIBUTING.md](./CONTRIBUTING.md) for more detail.
 Current release: **v0.2.4**
 Changelog: [CHANGELOG.md](./CHANGELOG.md)
 
+## Screenshots
+
+| Server Workshop | Steam Link | Admin Settings |
+| --- | --- | --- |
+| ![Server Workshop page showing install controls, recent downloads, and installed content](./screenshots/Server-Workshop-Page.png) | ![Steam Link page showing account linking and verified linked account status](./screenshots/Account-Steam-Link.png) | ![Admin extension settings showing helper connection, Steam metadata key, diagnostics, and game presets](./screenshots/Admin-Extension-Settings.png) |
+
 ## License
 
 **MIT + [Commons Clause](https://commonsclause.com/)**. Free for personal and

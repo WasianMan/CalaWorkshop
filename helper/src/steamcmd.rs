@@ -28,6 +28,18 @@ fn apply_noninteractive_flags(cmd: &mut Command) {
         .arg("1");
 }
 
+/// Keep SteamCMD's auth/sentry/config files inside the account workdir. SteamCMD
+/// consults the process home for parts of its login cache, so `current_dir` and
+/// `+force_install_dir` alone are not enough for reliable per-account reuse.
+fn apply_steam_home(cmd: &mut Command, workdir: &Path) {
+    cmd.env("HOME", workdir)
+        .env("USER", "steam")
+        .env("LOGNAME", "steam")
+        .env("XDG_DATA_HOME", workdir.join(".local").join("share"))
+        .env("XDG_CONFIG_HOME", workdir.join(".config"))
+        .env("XDG_CACHE_HOME", workdir.join(".cache"));
+}
+
 /// Run a prepared steamcmd command with a timeout, returning its captured output.
 async fn run_steamcmd(
     mut cmd: Command,
@@ -86,6 +98,7 @@ pub async fn download_item(
     // steamcmd +@... +force_install_dir <dir> +login <user> +workshop_download_item <app> <id> +quit
     let mut cmd = Command::new(&config.steamcmd_bin);
     apply_noninteractive_flags(&mut cmd);
+    apply_steam_home(&mut cmd, workdir);
     cmd.arg("+force_install_dir")
         .arg(workdir)
         .arg("+login")
@@ -146,6 +159,7 @@ pub async fn login(
 
     let mut cmd = Command::new(&config.steamcmd_bin);
     apply_noninteractive_flags(&mut cmd);
+    apply_steam_home(&mut cmd, workdir);
     cmd.arg("+force_install_dir")
         .arg(workdir)
         .arg("+login")
@@ -220,6 +234,7 @@ pub async fn connectivity_check(config: &Config) -> Result<String> {
 
     let mut cmd = Command::new(&config.steamcmd_bin);
     apply_noninteractive_flags(&mut cmd);
+    apply_steam_home(&mut cmd, &workdir);
     cmd.arg("+force_install_dir")
         .arg(&workdir)
         .arg("+login")

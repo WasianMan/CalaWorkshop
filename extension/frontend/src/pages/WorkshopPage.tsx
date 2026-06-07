@@ -18,6 +18,7 @@ import {
 } from '@mantine/core';
 import { useEffect, useMemo, useState } from 'react';
 import { httpErrorToHuman } from '@/api/axios.ts';
+import deleteDownload from '../api/deleteDownload.ts';
 import deleteInstalled from '../api/deleteInstalled.ts';
 import getConfig, { type WorkshopConfig } from '../api/getConfig.ts';
 import getJob from '../api/getJob.ts';
@@ -190,6 +191,15 @@ export default function WorkshopPage() {
     }
   };
 
+  const handleDeleteJob = async (job: JobRow) => {
+    try {
+      await deleteDownload(server.uuid, job.id);
+      setJobs((prev) => prev.filter((j) => j.id !== job.id));
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+    }
+  };
+
   const handleTrack = async (entry: InstalledEntry) => {
     try {
       await importInstalled(server.uuid, entry);
@@ -264,6 +274,7 @@ export default function WorkshopPage() {
                   <Table.Th>Workshop</Table.Th>
                   <Table.Th>File</Table.Th>
                   <Table.Th>Status</Table.Th>
+                  <Table.Th />
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -274,6 +285,19 @@ export default function WorkshopPage() {
                     <Table.Td>
                       <Badge color={stateColor(job.state)}>{job.state}</Badge>
                       {job.error ? <Text size='xs' c='red'>{job.error}</Text> : null}
+                    </Table.Td>
+                    <Table.Td align='right'>
+                      <ServerCan action='workshop.install'>
+                        <ActionIcon
+                          color='red'
+                          variant='subtle'
+                          aria-label='Remove recent download'
+                          title='Remove recent download'
+                          onClick={() => handleDeleteJob(job)}
+                        >
+                          <FontAwesomeIcon icon={faTrash} />
+                        </ActionIcon>
+                      </ServerCan>
                     </Table.Td>
                   </Table.Tr>
                 ))}

@@ -147,6 +147,21 @@ pub async fn get_download(
     Ok(row.map(download_from_row))
 }
 
+pub async fn delete_download(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    server_uuid: uuid::Uuid,
+    id: uuid::Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "DELETE FROM dev_wasian_calaworkshop_download_jobs WHERE server_uuid = $1 AND id = $2",
+    )
+    .bind(server_uuid)
+    .bind(id)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 pub async fn update_download_helper(
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     id: uuid::Uuid,

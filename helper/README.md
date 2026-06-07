@@ -95,7 +95,9 @@ network as `http://calagopus-workshop-helper:8090`.
   account**, so expect to link one for it.
 - There is **no passwordless download token** in steamcmd. You authenticate once
   (`POST /accounts/login`), steamcmd caches a session/sentry file in that label's
-  working dir, and later downloads reuse it.
+  working dir, and later downloads reuse it. The helper runs steamcmd with `HOME`
+  and XDG cache/config/data directories pointed at that label directory so each
+  linked account keeps an isolated, persistent SteamCMD session.
 - We persist **only the username** per label in `<data_dir>/steam/<label>/account.json`.
   The **password is never written to disk**. Account-based downloads run steamcmd
   in that workdir with `+login <username>` and rely on the cached session.
@@ -103,9 +105,10 @@ network as `http://calagopus-workshop-helper:8090`.
   cannot *prompt* for a code. A fresh, Guard-protected login will emit a
   "Steam Guard" message and exit; the helper detects that and returns
   `409 {"state":"needs_guard"}`. The caller must then re-`POST /accounts/login`
-  with `guard_code` filled in (passed as the optional 3rd `+login` argument).
-  Detection is heuristic (steamcmd wording varies by version). Once a session is
-  cached it is reused until Steam expires it, at which point login must run again.
+  with `guard_code` filled in (passed as the optional 3rd `+login` argument), or
+  approve the mobile sign-in prompt and retry. Detection is heuristic (steamcmd
+  wording varies by version). Once a session is cached it is reused until Steam
+  expires it, at which point login must run again.
 - `GET /accounts` reports `valid: true` when a username is stored (i.e. a login
   was performed). It does **not** re-verify session freshness — doing so would
   require invoking steamcmd on every list call.

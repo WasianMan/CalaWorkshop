@@ -3,6 +3,19 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
+## [0.2.3]
+
+### Added
+- Recent download rows can be removed from the Workshop page, useful for clearing
+  failed transfer/install attempts without touching installed files.
+
+### Fixed
+- Helper SteamCMD account logins now isolate `HOME`/XDG cache/config/data per
+  linked account label so cached sessions are reused more reliably for
+  account-backed downloads.
+- Steam Link no longer sends an empty Steam Guard argument, and the UI now calls
+  out mobile-app sign-in approval as an alternative to typing the generated code.
+
 ## [0.2.2]
 
 ### Fixed

@@ -55,7 +55,7 @@ export default function SteamLinkPage() {
         label: label.trim(),
         username: username.trim(),
         password,
-        guardCode: needsGuard ? guardCode.trim() : null,
+        guardCode: needsGuard && guardCode.trim() ? guardCode.trim() : null,
       });
       if (result.state === 'ok') {
         addToast(`Linked ${label}`, 'success');
@@ -96,9 +96,9 @@ export default function SteamLinkPage() {
           Anonymous downloads work for some games, but many (including Left 4 Dead 2) require an
           account that owns the game. Linking logs the helper into your Steam account once and
           caches the session — your password is never stored. Accounts you link here are tied to
-          your user and are not visible to other panel users. A fresh login asks for a Steam Guard
-          code: submit your username and password first, then enter the code from your email or
-          authenticator app when prompted.
+          your user and are not visible to other panel users. A fresh login may need Steam Guard:
+          check your Steam mobile app for an approval prompt, or enter the generated code from the
+          app's Steam Guard page when prompted.
         </Alert>
 
         <Card withBorder radius='md' padding='lg'>
@@ -125,7 +125,7 @@ export default function SteamLinkPage() {
             {needsGuard ? (
               <TextInput
                 label='Steam Guard code'
-                description='Sent to your email / authenticator'
+                description='Use the generated app/email code, or approve the mobile sign-in and submit again.'
                 value={guardCode}
                 onChange={(e) => setGuardCode(e.currentTarget.value)}
               />

@@ -94,9 +94,36 @@ mod get {
     }
 }
 
+mod delete {
+    use axum::extract::Path;
+    use shared::{
+        GetState,
+        models::user::GetPermissionManager,
+        response::{ApiResponse, ApiResponseResult},
+    };
+
+    /// Remove a persisted Workshop download row from recent history. This does
+    /// not touch installed files or helper job artifacts.
+    #[utoipa::path(delete, path = "/", responses(
+        (status = OK, body = Object),
+    ), params(
+        ("server" = uuid::Uuid, description = "The server ID"),
+        ("download" = uuid::Uuid, description = "The download job ID"),
+    ))]
+    pub async fn route(
+        state: GetState,
+        permissions: GetPermissionManager,
+        Path((server_uuid, download)): Path<(uuid::Uuid, uuid::Uuid)>,
+    ) -> ApiResponseResult {
+        permissions.has_server_permission("workshop.install")?;
+        crate::registry::delete_download(state.database.write(), server_uuid, download).await?;
+        ApiResponse::new_serialized(serde_json::json!({ "removed": true })).ok()
+    }
+}
+
 pub fn router(state: &State) -> OpenApiRouter<State> {
     OpenApiRouter::new()
-        .routes(routes!(get::route))
+        .routes(routes!(get::route, delete::route))
         .nest("/install", install::router(state))
         .with_state(state.clone())
 }

@@ -128,10 +128,11 @@ Removes the cached session. `204`.
 - Anonymous works only for apps on Valve's allow-list; **L4D2 (550) generally requires an
   owning account** → expect to use a linked account for L4D2.
 - There is **no passwordless download token**. Auth = login once (+ Guard code), session
-  cached in the steam home dir; reused until it expires.
+  cached under the per-label steam workdir/home; reused until it expires.
 - Workshop content lands at `<steam_workdir>/steamapps/workshop/content/{app_id}/{workshop_id}/`.
 - Command shape:
   `steamcmd +@ShutdownOnFailedCommand 1 +@NoPromptForPassword 1 +force_install_dir <dir> +login <anonymous|user pass [code]> +workshop_download_item <app_id> <workshop_id> +quit`
-- The Steam Guard code is the optional 3rd positional arg to `+login`. After a
-  successful login the session is cached in the work dir and later `+login <user>`
-  calls reuse it without a code.
+- The Steam Guard code is the optional 3rd positional arg to `+login`. Mobile
+  authenticator accounts may also ask for an in-app approval. After a successful
+  login the session is cached in the per-label workdir/home and later
+  `+login <user>` calls reuse it without a code.

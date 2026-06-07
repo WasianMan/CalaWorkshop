@@ -81,6 +81,13 @@ services:
     #   build: ./helper
     container_name: calagopus-workshop-helper
     restart: unless-stopped
+    # SteamCMD needs the AF_ALG socket family, which Docker 29.4.2's default
+    # seccomp profile blocks (CVE-2026-31431). Without this the SteamCMD
+    # diagnostic / logins fail with "CreateBoundSocket … (38)" / "No Connection".
+    # Scoped to this container only. See docs/DEPLOY.md for a narrower custom
+    # seccomp profile if you'd rather keep the default mitigation.
+    security_opt:
+      - seccomp=unconfined
     environment:
       - TZ=America/Chicago
       - 'WORKSHOP_HELPER_TOKEN=${WORKSHOP_HELPER_TOKEN}'

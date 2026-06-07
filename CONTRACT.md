@@ -74,7 +74,10 @@ Stream the downloaded artifact. Called by **Wings**, not the extension.
 
 For normal non-archive installs, the helper can serve a generated zip containing
 only the selected install artifacts. The `files` array tells the extension which
-filenames should exist after Wings decompresses the transfer zip.
+filenames should exist after Wings decompresses the transfer zip — these are the
+**install names**, not necessarily the raw SteamCMD filenames. For L4D2 (app 550)
+the helper renames the downloaded `<ugc-handle>_legacy.bin` to `<workshop_id>.vpk`
+(and a paired image to `<workshop_id>.<ext>`) so the dedicated server loads it.
 
 ### `GET /health`
 Authenticated reachability check.

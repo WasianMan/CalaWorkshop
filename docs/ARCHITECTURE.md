@@ -41,6 +41,11 @@ work. The helper never touches a volume.
 
 (Verified against the panel's own `files/pull` route and the `wings-api` client.)
 
+**Wings blocks private-IP pulls by default.** Its `api.remote_download_blocked_cidrs`
+SSRF guard blocks RFC1918 ranges, and the helper lives on a private compose IP, so
+the operator must allow the helper's range for installs to work — see
+[DEPLOY.md](./DEPLOY.md#wings-must-be-allowed-to-pull-from-the-helper-required).
+
 ## Permissions
 
 Three scopes, registered in `initialize_permissions`:
@@ -85,6 +90,11 @@ VPK/JPG pairs are visible before they are imported into the registry.
 ## Helper internals
 
 - In-memory job registry; artifacts written under `WORKSHOP_DATA_DIR/jobs/<id>/`.
+- **L4D2 install naming:** SteamCMD delivers app-550 workshop items as a single
+  `<ugc-handle>_legacy.bin` (the raw VPK). The dedicated server only loads addons
+  named `<workshop_id>.vpk`, so for app 550 the helper renames the primary artifact
+  to `<workshop_id>.vpk` (and a paired preview image to `<workshop_id>.<ext>`) inside
+  the transfer zip. Other apps keep their original filenames.
 - Per-account SteamCMD working dirs under `WORKSHOP_DATA_DIR/steam/<label|anonymous>/`
   so cached sessions persist (mount `/data`).
 - `GET /files/<job>?token=` is the only unauthenticated-by-header endpoint (Wings pull

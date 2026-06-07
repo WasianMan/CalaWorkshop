@@ -243,13 +243,16 @@ async fn do_download(
         Ok((file_name.clone(), vec![file_name], size))
     } else {
         let selected = steamcmd::select_install_artifacts(&content).await?;
+        // Map to install names (L4D2 .bin/.vpk -> <workshop_id>.vpk) so the
+        // dedicated server actually loads the addon.
+        let mapped = steamcmd::install_artifact_names(app_id, workshop_id, &selected);
         let file_name = format!("workshop_{workshop_id}.zip");
         let dest = job_dir.join(&file_name);
-        steamcmd::zip_selected_files(&content, &selected, &dest).await?;
+        steamcmd::zip_selected_files(&content, &mapped, &dest).await?;
         let size = tokio::fs::metadata(&dest).await?.len();
-        let files = selected
+        let files = mapped
             .iter()
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .map(|(_, install_name)| install_name.clone())
             .collect();
         Ok((file_name, files, size))
     }
@@ -406,6 +409,9 @@ async fn post_login(
             StatusCode::UNAUTHORIZED,
             "invalid credentials",
         )),
+        LoginOutcome::ConnectivityFailed(message) => {
+            Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE, message))
+        }
     }
 }
 

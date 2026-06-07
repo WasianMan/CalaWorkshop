@@ -3,6 +3,30 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
+## [0.2.2]
+
+### Fixed
+- **L4D2 installs now land as a loadable `<workshop_id>.vpk`.** SteamCMD delivers
+  app-550 items as `<ugc-handle>_legacy.bin` (the raw VPK); the helper now renames
+  the primary artifact to `<workshop_id>.vpk` (and a paired image to
+  `<workshop_id>.<ext>`) so the dedicated server actually loads the addon, instead
+  of dropping a stray `..._legacy.bin` the game ignores.
+- **Steam Guard mobile-authenticator logins are recognized as success.** Login
+  output parsing checked the "Steam Guard" notice before the success lines, so a
+  phone-confirmed mobile-authenticator login was misreported as `needs_guard` and
+  the session was never persisted (later account downloads failed with "no cached
+  session"). Success is now checked first.
+- Helper login now returns `503` with the SteamCMD connectivity error (instead of
+  `401 invalid credentials`) when SteamCMD can't reach Steam, so the UI stops
+  blaming the password for a connectivity/seccomp problem.
+
+### Docs
+- DEPLOY: documented the **required** Wings `remote_download_blocked_cidrs` change
+  (Wings blocks pulling from the helper's private IP by default — installs fail with
+  a `417`/"Network unreachable" until the helper's range is allowed).
+- compose.aio.example.yml ships the helper with `security_opt: seccomp=unconfined`
+  (with a pointer to a narrower custom profile) for the Docker 29.4.2 SteamCMD fix.
+
 ## [0.2.1]
 
 ### Added

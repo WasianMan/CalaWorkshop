@@ -127,6 +127,53 @@ it up.
    A fresh login asks for a Steam Guard code: submit username + password, then
    re-submit with the code from your email/authenticator when prompted.
 
+## Wings must be allowed to pull from the helper (required)
+
+Installs place files by having **Wings** `files/pull` the helper's `/files/<job>`
+URL into the server volume. Wings has an SSRF guard
+(`api.remote_download_blocked_cidrs`) that by default blocks **private** address
+ranges. The helper sits on the compose/Coolify network, which is usually a private
+`10.x`, `172.16-31.x`, or `192.168.x` address. Without allowing that helper subnet,
+downloads succeed but installs fail with:
+
+```
+[wings] WARN  ... blocking internal IP address in pull: 10.0.x.x
+[wings] ERROR ... failed to create pull: ... Network unreachable
+ERROR ... wings api status code 417 Expectation Failed
+```
+
+First identify the helper's Docker IP/subnet:
+
+```bash
+docker inspect calagopus-workshop-helper --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{.NetworkID}}{{end}}'
+docker network inspect <network-id-or-name> --format '{{json .IPAM.Config}}'
+```
+
+Then edit your Wings config (in this AIO setup,
+`/data/calagopus/wings-config.yml`) and remove the specific range the helper lives
+in from the blocklist, then restart. Example for a helper on `10.x`:
+
+```yaml
+api:
+  remote_download_blocked_cidrs:
+    - 127.0.0.0/8
+    # - 10.0.0.0/8        # removed so Wings can pull from the helper (10.0.x.x)
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 169.254.0.0/16
+    - ::1
+    - fe80::/10
+    - fc00::/7
+```
+
+Tradeoff: this node can now pull from `10.x` targets via the file-pull feature
+(a small SSRF surface). If your helper is on Docker's common `172.16.0.0/12`
+range, remove that line instead; if it is on `192.168.0.0/16`, remove that line
+instead. Prefer allowing the narrowest subnet Docker reports for your helper
+network when Wings supports it. Confirm the edit survives a redeploy (the AIO
+image can template this file); if it doesn't, bake the change into whatever base
+config `AIO_BASE_WINGS_CONFIGURATION` points at.
+
 ## Updating
 
 - **Helper:** push a new tag → CI publishes a new image → redeploy (or
@@ -148,9 +195,10 @@ helper service and mounts in place for when you switch back.
 
 If the admin **Diagnostics → Run checks** shows the helper reachable but the
 **SteamCMD** check failing with `CreateBoundSocket: failed to create socket … (38)`
-or `No Connection`, this is **not** a networking problem. Docker 29.4.2 tightened its
-default seccomp profile (mitigating CVE-2026-31431) and now blocks the `AF_ALG`
-socket family (38) and the 32-bit `socketcall` syscall that SteamCMD uses.
+or `No Connection`, or timing out with `steamcmd timed out after 90s`, this is
+usually **not** a missing helper network route. Docker 29.4.2 tightened its default
+seccomp profile (mitigating CVE-2026-31431) and now blocks the `AF_ALG` socket
+family (38) and the 32-bit `socketcall` syscall that SteamCMD uses.
 
 Fix it on the **helper** container only. Preferred (narrow) option — a custom seccomp
 profile based on Docker's default that re-allows `AF_ALG` + 32-bit `socketcall`,
@@ -175,6 +223,13 @@ recreating the helper, re-run the diagnostics check — it should pass before li
 downloading. (The helper now also fails this check *fast* instead of hanging, and the
 panel no longer freezes while it runs — see the changelog.)
 
+The helper image is intentionally minimal and may not include `curl`, `wget`, `ping`,
+or DNS tools. If you need to test general egress from the same Docker network, run a
+temporary diagnostics container on that network instead of installing tools into the
+helper. The decisive check for Workshop downloads is still the admin SteamCMD
+diagnostic, because plain HTTP/DNS tools can succeed while SteamCMD's blocked socket
+path still fails.
+
 ## Troubleshooting
 
 | Symptom | Likely cause / fix |
@@ -183,5 +238,5 @@ panel no longer freezes while it runs — see the changelog.)
 | Helper container restarts / exits immediately | Missing `WORKSHOP_HELPER_TOKEN` (it refuses to start without one). Check the env var. |
 | Workshop tab says "helper is not configured" | Helper URL/token not set in admin settings, or token mismatch with the env var. |
 | L4D2 downloads fail with anonymous | Expected — link a Steam account that owns L4D2 and select it when installing. |
-| SteamCMD reports `CreateBoundSocket: failed to create socket, error [no name available] (38)` or `No Connection` | Run the admin diagnostics check first. This can be a Docker/seccomp compatibility issue in newer Docker releases with older SteamCMD socket paths. Do not switch the whole stack to host networking. Check `docker version`, `docker info`, and `docker compose logs calagopus-workshop-helper`. As a temporary diagnostic only, test the helper image with `--security-opt seccomp=unconfined`; if that changes the failure, prefer updating Docker/SteamCMD base images or applying a narrow seccomp profile rather than leaving production unconfined. |
+| SteamCMD reports `CreateBoundSocket: failed to create socket, error [no name available] (38)`, `No Connection`, or `steamcmd timed out after 90s` | Run the admin diagnostics check first. This can be a Docker/seccomp compatibility issue in newer Docker releases with older SteamCMD socket paths. Do not switch the whole stack to host networking. Check `docker version`, `docker info`, and `docker compose logs calagopus-workshop-helper`. As a temporary diagnostic only, test the helper image with `--security-opt seccomp=unconfined`; if that changes the failure, prefer updating Docker/SteamCMD base images or applying a narrow seccomp profile rather than leaving production unconfined. |
 | Wings "pull" fails to fetch the file | Helper not reachable from the panel/Wings network. Confirm both are on the same compose network and the URL is the service name. |

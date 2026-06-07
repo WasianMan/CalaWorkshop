@@ -44,7 +44,7 @@ async fn run_steamcmd(
 }
 
 /// Outcome of a steamcmd login attempt (used by `POST /accounts/login`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoginOutcome {
     /// Session established / refreshed successfully.
     Ok,
@@ -52,6 +52,8 @@ pub enum LoginOutcome {
     NeedsGuard,
     /// Credentials were rejected.
     InvalidCredentials,
+    /// SteamCMD could not reach Steam, so credentials were not tested.
+    ConnectivityFailed(String),
 }
 
 /// Persisted, non-secret metadata for a linked account label.
@@ -164,21 +166,37 @@ pub async fn login(
     );
     tracing::debug!(%combined, "steamcmd login finished");
 
+    parse_login_outcome(&combined)
+}
+
+fn parse_login_outcome(combined: &str) -> Result<LoginOutcome> {
     // Detection is heuristic — steamcmd's wording varies across versions. We look
     // for the common Steam Guard prompts. Note: in a non-interactive process
     // steamcmd cannot actually *prompt*, so a fresh Guard-protected account will
     // emit one of these and exit; the caller then re-POSTs with `guard_code`.
     let lower = combined.to_lowercase();
+    if combined.contains("CreateBoundSocket") || lower.contains("no connection") {
+        return Ok(LoginOutcome::ConnectivityFailed(
+            extract_error_line(combined)
+                .unwrap_or_else(|| "steamcmd connectivity failed".to_string()),
+        ));
+    }
+
+    // Success must be checked BEFORE the Steam Guard prompt: a Steam Guard mobile
+    // authenticator login that the user confirms on their phone prints both the
+    // "protected by a Steam Guard mobile authenticator" notice AND the success
+    // lines, so checking guard first would misreport a completed login as
+    // needing a code (and the caller would never persist the session).
+    if combined.contains("Logged in OK") || combined.contains("Waiting for user info...OK") {
+        return Ok(LoginOutcome::Ok);
+    }
+
     if lower.contains("steam guard")
         || lower.contains("two-factor")
         || lower.contains("guard code")
         || lower.contains("need two factor")
     {
         return Ok(LoginOutcome::NeedsGuard);
-    }
-
-    if combined.contains("Logged in OK") || combined.contains("Waiting for user info...OK") {
-        return Ok(LoginOutcome::Ok);
     }
 
     if lower.contains("invalid password")
@@ -359,6 +377,50 @@ pub async fn select_install_artifacts(dir: &Path) -> Result<Vec<PathBuf>> {
         .collect())
 }
 
+/// Map selected source artifacts to the filenames they should be installed as.
+///
+/// SteamCMD delivers L4D2 (app 550) workshop items as a single
+/// `<ugc-handle>_legacy.bin` (the raw VPK), and the dedicated server only loads
+/// addons named `<workshop_id>.vpk`. So for app 550 we rename the primary
+/// artifact to `<workshop_id>.vpk` and a paired preview image to
+/// `<workshop_id>.<ext>`. Other apps keep their original filenames.
+pub fn install_artifact_names(
+    app_id: u64,
+    workshop_id: u64,
+    selected: &[PathBuf],
+) -> Vec<(PathBuf, String)> {
+    selected
+        .iter()
+        .map(|src| {
+            let original = src
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| src.to_string_lossy().replace('\\', "/"));
+
+            let dest = if app_id == 550 {
+                if is_image(src) {
+                    let ext = src
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("jpg")
+                        .to_ascii_lowercase();
+                    format!("{workshop_id}.{ext}")
+                } else {
+                    format!("{workshop_id}.vpk")
+                }
+            } else {
+                original
+            };
+
+            (src.clone(), dest)
+        })
+        .collect()
+}
+
+fn is_image(path: &Path) -> bool {
+    has_ext(path, "jpg") || has_ext(path, "jpeg") || has_ext(path, "png")
+}
+
 async fn regular_files(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
@@ -383,7 +445,13 @@ fn has_ext(path: &Path, ext: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub async fn zip_selected_files(src_root: &Path, files: &[PathBuf], dest: &Path) -> Result<()> {
+/// Zip the selected source files into `dest`, each stored under its mapped
+/// install name (`(relative_source, install_name)` pairs).
+pub async fn zip_selected_files(
+    src_root: &Path,
+    files: &[(PathBuf, String)],
+    dest: &Path,
+) -> Result<()> {
     let src_root = src_root.to_path_buf();
     let files = files.to_vec();
     let dest = dest.to_path_buf();
@@ -392,7 +460,11 @@ pub async fn zip_selected_files(src_root: &Path, files: &[PathBuf], dest: &Path)
         .context("zip task panicked")?
 }
 
-fn zip_selected_files_blocking(src_root: &Path, files: &[PathBuf], dest: &Path) -> Result<()> {
+fn zip_selected_files_blocking(
+    src_root: &Path,
+    files: &[(PathBuf, String)],
+    dest: &Path,
+) -> Result<()> {
     use std::io::{Read, Write};
     use zip::write::SimpleFileOptions;
 
@@ -402,9 +474,9 @@ fn zip_selected_files_blocking(src_root: &Path, files: &[PathBuf], dest: &Path) 
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     let mut buf = Vec::new();
 
-    for rel in files {
+    for (rel, install_name) in files {
         let src = src_root.join(rel);
-        let name = rel.to_string_lossy().replace('\\', "/");
+        let name = install_name.replace('\\', "/");
         zip.start_file(name, options)?;
         let mut f = std::fs::File::open(&src)?;
         buf.clear();
@@ -475,6 +547,7 @@ fn extract_error_line(out: &str) -> Option<String> {
             || lower.contains("failed")
             || lower.contains("failure")
             || lower.contains("invalid")
+            || lower.contains("no connection")
             || lower.contains("no subscription")
             || lower.contains("timeout")
         {
@@ -484,4 +557,71 @@ fn extract_error_line(out: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{install_artifact_names, parse_login_outcome, LoginOutcome};
+    use std::path::PathBuf;
+
+    #[test]
+    fn login_no_connection_is_not_invalid_credentials() {
+        let outcome = parse_login_outcome(
+            "Loading Steam API...CreateBoundSocket: failed to create socket, error [no name available] (38)\n\
+             Logging in user 'example' [U:1:0] to Steam Public...Retrying...\n\
+             ERROR (No Connection)\n",
+        )
+        .expect("parse login output");
+
+        assert_eq!(
+            outcome,
+            LoginOutcome::ConnectivityFailed("ERROR (No Connection)".to_string())
+        );
+    }
+
+    #[test]
+    fn login_guard_prompt_is_detected() {
+        let outcome = parse_login_outcome("Steam Guard code required").expect("parse login output");
+        assert_eq!(outcome, LoginOutcome::NeedsGuard);
+    }
+
+    #[test]
+    fn mobile_authenticator_confirmation_is_success_not_guard() {
+        // A confirmed mobile-authenticator login mentions "Steam Guard" but also
+        // completes — it must be treated as Ok, not NeedsGuard.
+        let outcome = parse_login_outcome(
+            "Logging in user 'example' to Steam Public...This account is protected by a Steam Guard mobile authenticator.\n\
+             Please confirm the login in the Steam Mobile app on your phone.\n\
+             Waiting for confirmation...OK\n\
+             Waiting for client config...OK\n\
+             Waiting for user info...OK\n",
+        )
+        .expect("parse login output");
+        assert_eq!(outcome, LoginOutcome::Ok);
+    }
+
+    #[test]
+    fn l4d2_legacy_bin_is_installed_as_workshop_id_vpk() {
+        let mapped = install_artifact_names(
+            550,
+            2888803926,
+            &[PathBuf::from("9372098838249685383_legacy.bin")],
+        );
+        assert_eq!(
+            mapped,
+            vec![(
+                PathBuf::from("9372098838249685383_legacy.bin"),
+                "2888803926.vpk".to_string(),
+            )]
+        );
+    }
+
+    #[test]
+    fn non_l4d2_keeps_original_filenames() {
+        let mapped = install_artifact_names(4000, 123, &[PathBuf::from("mod_main.bin")]);
+        assert_eq!(
+            mapped,
+            vec![(PathBuf::from("mod_main.bin"), "mod_main.bin".to_string())]
+        );
+    }
 }

@@ -4,116 +4,131 @@
 [![release](https://github.com/WasianMan/CalaWorkshop/actions/workflows/release.yml/badge.svg)](https://github.com/WasianMan/CalaWorkshop/actions/workflows/release.yml)
 [![license: MIT + Commons Clause](https://img.shields.io/badge/license-MIT%20%2B%20Commons%20Clause-blue.svg)](./LICENSE)
 
-A **Steam Workshop downloader for [Calagopus](https://calagopus.com)**, shipped as a
-panel **extension** (`dev.wasian.calaworkshop`) plus a small **SteamCMD helper**
-service. Adds a per-server **Workshop** tab: paste a Workshop URL/ID (search is on
-the roadmap) and it installs the content straight onto your game server.
+Steam Workshop installs for [Calagopus](https://calagopus.com), shipped as:
 
-Built for Left 4 Dead 2 first, but works for any Steam game via configurable presets.
+- a Calagopus panel extension: `dev.wasian.calaworkshop`
+- a small SteamCMD helper container: `ghcr.io/wasianman/calaworkshop-helper`
 
-> **Status: alpha, and a side project.** This is something I build and run for my own
-> server and share in case it's useful. I genuinely intend to get it stable and
-> polished, but I can't promise active or long-term maintenance, fast issue responses,
-> or backwards compatibility between alpha releases. Use it at your own risk — there is
-> **no warranty or guarantee of any kind** (see [LICENSE](./LICENSE)). Bug reports and
-> PRs are welcome, and I'll get to them when I can.
+It adds a per-server **Workshop** tab where you paste a Workshop URL/ID, download
+through SteamCMD, and install the selected files onto the game server through Wings.
+The first target is **Left 4 Dead 2**, including normal VPK + preview image pairs,
+but other Steam games can be added through presets.
 
-## How it works
+> **Status: alpha.** This is a side project I use on my own server and share in
+> case it helps others. It is functional end-to-end, but expect rough edges and
+> occasional breaking changes while it settles. No warranty; see [LICENSE](./LICENSE).
 
+## What Works
+
+- Paste Workshop URL/ID and install through Wings `files/pull`
+- Persistent download history and installed-item tracking
+- Managed/imported/unmanaged installed-content list
+- Precise uninstall of files tracked by this extension
+- L4D2 install naming as `<workshop_id>.vpk` plus matching preview image
+- Per-user Steam account linking with Steam Guard/mobile-auth support
+- Helper and SteamCMD diagnostics in the admin config page
+
+Search UI, collection expansion, and richer update/reinstall workflows are still on
+the roadmap.
+
+## How It Works
+
+```text
+Workshop tab  -> extension backend -> helper container -> SteamCMD download
+     |                  |                    |
+     |                  |                    v
+     |                  +---- Wings files/pull from helper /files/<job>
+     v
+server volume receives the selected Workshop files
 ```
-Workshop tab  ──>  extension backend  ──POST──>  helper (runs SteamCMD)
-   (React)          (Rust, in panel)                 │ downloads item, serves it at /files
-                          │                          ▼
-                          └── Wings files/pull  <── http://helper:8090/files/<job>?token=…
-                                   places the file into the server volume
-```
 
-The extension never runs SteamCMD and never touches a server volume directly. It
-asks the helper to download, then tells **Wings** to pull the helper's file URL into
-the server. Because Wings does the placement, this works on AIO **and** remote nodes.
+The panel extension does not run SteamCMD and does not mount game-server volumes.
+The helper downloads items and serves a temporary artifact. Wings pulls that helper
+URL into the server volume, so the same path works for AIO and remote nodes.
 
-Full design: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) · wire format:
-[CONTRACT.md](./CONTRACT.md).
+Full design: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+Helper contract: [CONTRACT.md](./CONTRACT.md)
 
-## Quick start
+## Install
 
-You need the Calagopus **heavy** image (`:heavy`/`:heavy-aio`) — the regular images
-can't compile extensions. Then:
+Use the public release artifacts:
 
-1. Add the helper service to your compose and pull its published image
-   (`ghcr.io/wasianman/calaworkshop-helper:latest`).
-2. Switch the panel to the heavy image and add the four build mounts.
-3. Drop `dev_wasian_calaworkshop.c7s.zip` (from the latest
-   [Release](https://github.com/WasianMan/CalaWorkshop/releases)) into the panel's
-   `/app/extensions` mount and restart.
-4. Configure the helper URL/token and game presets in the admin panel.
+- `ghcr.io/wasianman/calaworkshop-helper:<version>` or `:latest`
+- `dev_wasian_calaworkshop.c7s.zip` from the latest
+  [GitHub Release](https://github.com/WasianMan/CalaWorkshop/releases)
 
-Step-by-step (including Coolify): **[docs/DEPLOY.md](./docs/DEPLOY.md)**.
+Short version:
 
-## ⚠️ Steam auth reality
+1. Switch the Calagopus panel to `ghcr.io/calagopus/panel:heavy-aio`.
+2. Add the heavy-image build mounts.
+3. Add the `calagopus-workshop-helper` service from
+   [compose.aio.example.yml](./compose.aio.example.yml).
+4. Allow Wings to pull from the helper's private Docker subnet.
+5. Put `dev_wasian_calaworkshop.c7s.zip` in `/app/extensions`.
+6. Redeploy/restart and configure the helper URL/token in the admin panel.
 
-There is **no passwordless download token**:
+Detailed AIO/Coolify steps: [docs/DEPLOY.md](./docs/DEPLOY.md)
 
-- A **Steam Web API key** is a real token but only powers names, previews, and
-  search metadata. SteamCMD handles downloads.
-- Downloading owned/private content requires a **SteamCMD login** (username +
-  password + a one-time Steam Guard code); the helper caches the session.
-- **Anonymous downloads only work for some games. Left 4 Dead 2 (550) requires an
-  account that owns the game** — link one on the Steam Link page.
+## Steam Notes
 
-## Repository layout
+- SteamCMD handles downloads.
+- A Steam Web API key is optional and only improves metadata like titles, previews,
+  and future search results.
+- Anonymous downloads work only for games Steam allows. **Left 4 Dead 2 generally
+  requires a linked Steam account that owns the game.**
+- Linked accounts are per panel user. The helper stores only SteamCMD session files
+  and the username metadata needed to reuse the session; it does not store the
+  password.
+- After linking, the helper runs a passwordless cached-session check before marking
+  the account verified.
 
-```
+## Repository Layout
+
+```text
 calaworkshop/
-├── extension/              # the .c7s.zip contents (Metadata.toml + backend/ + frontend/ + migrations/)
-│   ├── backend/            # Rust extension (routes, settings, helper client)
-│   ├── frontend/           # React UI (Workshop tab, Steam link, admin config)
-│   └── migrations/
-├── helper/                 # standalone Rust SteamCMD service + Dockerfile
-├── packaging/              # build-c7s.ps1 (Windows) / build-c7s.sh (Linux/CI)
-├── docs/                   # DEPLOY, ARCHITECTURE
-├── compose.aio.example.yml # reference AIO compose with the helper wired in
-├── CONTRACT.md             # extension ⇄ helper HTTP contract
-└── .github/workflows/      # ci + release (builds image to GHCR, publishes .c7s.zip)
+├── extension/              # packaged into dev_wasian_calaworkshop.c7s.zip
+│   ├── backend/            # Rust extension routes/settings/helper client
+│   ├── frontend/           # React Workshop, Steam Link, and admin pages
+│   └── migrations/         # extension DB migrations
+├── helper/                 # Rust SteamCMD helper service + Dockerfile
+├── packaging/              # .c7s archive builders
+├── docs/                   # deploy and architecture docs
+├── compose.aio.example.yml # reference AIO stack with helper wired in
+└── CONTRACT.md             # extension <-> helper HTTP contract
 ```
 
 ## Permissions
 
-| Scope  | Node                       | Allows |
-| ------ | -------------------------- | ------ |
-| server | `workshop.read`            | See the Workshop tab + installed content |
-| server | `workshop.install`         | Download & install items |
-| server | `workshop.remove`          | Delete installed content |
-| user   | `calaworkshop.link-steam`  | Link/manage Steam accounts on the helper |
-| admin  | `calaworkshop.configure`   | Edit helper connection, API key, presets |
+| Scope | Permission | Allows |
+| --- | --- | --- |
+| server | `workshop.read` | View Workshop tab and installed content |
+| server | `workshop.install` | Download, install, and track Workshop items |
+| server | `workshop.remove` | Remove tracked installed content |
+| user | `calaworkshop.link-steam` | Link and manage personal Steam accounts |
+| admin | `calaworkshop.configure` | Configure helper, API key, presets, diagnostics |
 
-## Building locally
+## Development
 
-- Helper: `cd helper && cargo build` (or `WORKSHOP_HELPER_TOKEN=dev cargo run`).
-- Extension archive: `packaging/build-c7s.ps1` (Windows) or `packaging/build-c7s.sh` (Linux).
-- The extension **backend** only compiles inside the Calagopus panel workspace (it
-  depends on the `shared`/`wings-api` crates); it's validated at heavy-image install
-  time. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+- Helper: `cd helper && cargo build`
+- Helper locally: `WORKSHOP_HELPER_TOKEN=dev cargo run`
+- Extension archive:
+  - Windows: `packaging/build-c7s.ps1`
+  - Linux/CI: `packaging/build-c7s.sh`
 
-## Status / roadmap
+The extension backend inherits the Calagopus panel workspace and does not compile
+standalone from this repository. It is compiled by the panel heavy image during
+install. See [CONTRIBUTING.md](./CONTRIBUTING.md) for more detail.
 
-**Current: `v0.2.4` — alpha.** Functional end-to-end, but expect rough edges.
+## Version
 
-Working: per-server Workshop tab; paste URL/ID → download → Wings-pull install;
-persistent job tracking; managed/imported/unmanaged installed-content list;
-precise uninstall; admin config with encrypted secrets and diagnostics; **per-user**
-Steam account linking (login + Guard) where each user only sees and downloads with
-their own linked accounts.
-
-Planned: search GUI (`IPublishedFileService/QueryFiles`) + collection expansion;
-update/reinstall actions; full local preview streaming once a Wings file-contents
-binding is available.
+Current release: **v0.2.4**
+Changelog: [CHANGELOG.md](./CHANGELOG.md)
 
 ## License
 
-**MIT + [Commons Clause](https://commonsclause.com/)** — free for personal and
-internal use; you may not *sell* it or offer a hosted/commercial service based on it
+**MIT + [Commons Clause](https://commonsclause.com/)**. Free for personal and
+internal use; you may not sell it or offer a hosted/commercial service based on it
 without a commercial license. See [LICENSE](./LICENSE). Commercial inquiries:
 `adam@wasian.dev`.
 
-> Source-available, not OSI "open source" (it restricts commercial selling).
+Source-available, not OSI open source, because commercial selling is restricted.

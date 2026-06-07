@@ -27,8 +27,9 @@ services:
       - 'APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY}'
       - APP_USE_DECRYPTION_CACHE=true
       - APP_USE_INTERNAL_CACHE=true
-    labels:
-      - traefik.http.middlewares.authentik-auth@file
+    # Optional: keep or adapt your own proxy/auth labels here.
+    # labels:
+    #   - traefik.http.middlewares.authentik-auth@file
     volumes:
       - '/data/calagopus/data:/var/lib/calagopus'
       - '/data/calagopus/logs:/var/log/calagopus'
@@ -74,8 +75,7 @@ services:
       - '/data/calagopus/cache:/data'
 
   calagopus-workshop-helper:
-    # Image published by GitHub Actions on each release tag. Make the GHCR
-    # package public (or add registry credentials in Coolify) so it can be pulled.
+    # Public helper image published with each GitHub Release.
     image: 'ghcr.io/wasianman/calaworkshop-helper:latest'
     # For local source builds instead, comment the image line and use:
     #   build: ./helper

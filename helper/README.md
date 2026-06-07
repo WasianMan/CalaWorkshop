@@ -22,7 +22,7 @@ by a per-job `?token=` query param instead (Wings cannot send custom headers).
 | `GET /health`                 | Bearer | Basic helper reachability check. |
 | `GET /diagnostics/steamcmd`   | Bearer | Lightweight anonymous SteamCMD connectivity check. |
 | `GET /accounts`               | Bearer | List linked accounts `{accounts:[{label, valid}]}`. |
-| `POST /accounts/login`        | Bearer | Establish/refresh a cached session. `200 {state:"ok"}`, `409 {state:"needs_guard"}`, `401`. |
+| `POST /accounts/login`        | Bearer | Establish/refresh and verify a cached session. `200 {state:"ok", verified:true}`, `409 {state:"needs_guard"}`, `401`. |
 | `DELETE /accounts/{label}`    | Bearer | Remove a cached session. `204`. |
 
 Errors are JSON `{ "error": "message" }` with `401`/`403`/`404`/`409`/`4xx`/`5xx`.
@@ -104,13 +104,12 @@ network as `http://calagopus-workshop-helper:8090`.
 - We persist **only the username** per label in `<data_dir>/steam/<label>/account.json`.
   The **password is never written to disk**. Account-based downloads run steamcmd
   in that workdir with `+login <username>` and rely on the cached session.
-- **Steam Guard limitations:** this is a non-interactive process, so steamcmd
-  cannot *prompt* for a code. A fresh, Guard-protected login will emit a
-  "Steam Guard" message and exit; the helper detects that and returns
-  `409 {"state":"needs_guard"}`. The caller must then re-`POST /accounts/login`
-  with `guard_code` filled in (passed as the optional 3rd `+login` argument), or
-  approve the mobile sign-in prompt and retry. Detection is heuristic (steamcmd
-  wording varies by version). Once a session is cached it is reused until Steam
+- **Steam Guard limitations:** this is a non-interactive process. SteamCMD may
+  accept a generated Steam Guard code, or it may wait briefly for a mobile app
+  approval. If the helper returns `409 {"state":"needs_guard"}`, re-`POST
+  /accounts/login` with `guard_code` filled in (passed as the optional 3rd
+  `+login` argument). Detection is heuristic (steamcmd wording varies by
+  version). Once a session is cached and verified, it is reused until Steam
   expires it, at which point login must run again.
 - `GET /accounts` reports `valid: true` when a username is stored (i.e. a login
   was performed). It does **not** re-verify session freshness — doing so would

@@ -44,7 +44,7 @@ work. The helper never touches a volume.
 **Wings blocks private-IP pulls by default.** Its `api.remote_download_blocked_cidrs`
 SSRF guard blocks RFC1918 ranges, and the helper lives on a private compose IP, so
 the operator must allow the helper's range for installs to work — see
-[DEPLOY.md](./DEPLOY.md#wings-must-be-allowed-to-pull-from-the-helper-required).
+[DEPLOY.md](./DEPLOY.md#3-allow-wings-to-pull-from-the-helper).
 
 ## Permissions
 

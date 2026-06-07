@@ -5,6 +5,20 @@ All notable changes to this project are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+- Persistent Workshop download and installed-item registry with exact installed
+  filenames for precise uninstall.
+- L4D2-oriented VPK plus same-stem JPG/JPEG/PNG install selection, with the
+  default preset changed to `left4dead2/addons`.
+- Installed-content scan for unmanaged files in `left4dead2/addons` and
+  `left4dead2/addons/workshop`, plus import/track actions.
+- Helper health and SteamCMD connectivity diagnostics surfaced in admin config.
+
+### Changed
+- Steam account selection is hidden unless the user has `calaworkshop.configure`.
+- Steam Web API key copy now clarifies that SteamCMD handles downloads and the
+  key is only for metadata.
+
 ## [0.1.2]
 
 ### Security
@@ -36,7 +50,7 @@ All notable changes to this project are documented here. Format loosely follows
   install onto the server through Wings `files/pull` (works on AIO and remote nodes).
 - Recent-downloads job tracking; installed-content listing and deletion.
 - Admin configuration card: helper URL/token and Steam Web API key (encrypted), plus a
-  game-preset editor (Left 4 Dead 2 seeded → `left4dead2/addons/workshop`).
+  game-preset editor (Left 4 Dead 2 seeded -> `left4dead2/addons/workshop`).
 - Steam account linking (account page): SteamCMD login + Steam Guard, proxied to the
   helper.
 - Permissions: server `workshop.{read,install,remove}`, user `calaworkshop.link-steam`,

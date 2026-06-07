@@ -5,7 +5,10 @@ export type WorkshopJob = {
   state: 'queued' | 'downloading' | 'ready' | 'failed' | string;
   appId: number;
   workshopId: number;
+  title?: string | null;
+  previewUrl?: string | null;
   fileName: string | null;
+  files?: string[];
   size: number | null;
   error: string | null;
 };

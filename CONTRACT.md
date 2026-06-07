@@ -35,7 +35,7 @@ Request:
   "app_id": 550,
   "workshop_id": 123456789,
   "account": null,            // null = anonymous; else a linked account label
-  "archive": false            // true = zip the item folder; false = serve the single largest file (e.g. one .vpk)
+  "archive": false            // true = zip the item folder; false = select install artifacts (VPK + matching image)
 }
 ```
 
@@ -44,7 +44,7 @@ Response `202 Accepted`:
 {
   "id": "9f1c...uuid",
   "state": "queued",
-  "file_token": "base64url-random"   // used to build the /files URL for Wings
+  "file_token": "base64url-random"   // helper-internal; the extension does not expose this in its start response
 }
 ```
 
@@ -58,7 +58,8 @@ Response `200`:
   "state": "queued | downloading | ready | failed",
   "app_id": 550,
   "workshop_id": 123456789,
-  "file_name": "123456789.vpk",   // present when state == ready
+  "file_name": "workshop_123456789.zip",   // present when state == ready
+  "files": ["123456789.vpk", "123456789.jpg"],
   "file_token": "base64url-random",
   "size": 1234567,                 // bytes, present when ready
   "error": null                    // human-readable string when state == failed
@@ -70,6 +71,17 @@ Stream the downloaded artifact. Called by **Wings**, not the extension.
 - `Content-Disposition: attachment; filename="<file_name>"` is set so Wings `use_header=true`
   names the file correctly.
 - `403` if token mismatch, `404` if job unknown, `409` if job not yet `ready`.
+
+For normal non-archive installs, the helper can serve a generated zip containing
+only the selected install artifacts. The `files` array tells the extension which
+filenames should exist after Wings decompresses the transfer zip.
+
+### `GET /health`
+Authenticated reachability check.
+
+### `GET /diagnostics/steamcmd`
+Authenticated SteamCMD anonymous-login connectivity check. Returns
+`{ "ok": true, "message": "..." }` or a non-2xx response with a parsed error.
 
 ---
 

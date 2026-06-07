@@ -165,6 +165,45 @@ pub async fn login(
     Ok(LoginOutcome::InvalidCredentials)
 }
 
+pub async fn connectivity_check(config: &Config) -> Result<String> {
+    let workdir = config.steam_dir("diagnostics");
+    tokio::fs::create_dir_all(&workdir)
+        .await
+        .with_context(|| format!("creating steam workdir {}", workdir.display()))?;
+
+    let output = Command::new(&config.steamcmd_bin)
+        .arg("+force_install_dir")
+        .arg(&workdir)
+        .arg("+login")
+        .arg("anonymous")
+        .arg("+quit")
+        .current_dir(&workdir)
+        .kill_on_drop(true)
+        .output()
+        .await
+        .with_context(|| format!("spawning steamcmd ({})", config.steamcmd_bin))?;
+
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lower = combined.to_lowercase();
+    if combined.contains("CreateBoundSocket") || lower.contains("no connection") {
+        bail!(extract_error_line(&combined)
+            .unwrap_or_else(|| "steamcmd connectivity failed".to_string()));
+    }
+    if combined.contains("Logged in OK") || combined.contains("Waiting for user info...OK") {
+        return Ok("anonymous login ok".to_string());
+    }
+    if output.status.success() {
+        return Ok("steamcmd exited successfully".to_string());
+    }
+    bail!(
+        extract_error_line(&combined).unwrap_or_else(|| "steamcmd connectivity failed".to_string())
+    )
+}
+
 /// Path to a workshop item's content folder inside a steam workdir.
 pub fn content_folder(workdir: &Path, app_id: u64, workshop_id: u64) -> PathBuf {
     workdir
@@ -255,6 +294,98 @@ pub async fn largest_file(dir: &Path) -> Option<(PathBuf, u64)> {
         }
     }
     best
+}
+
+/// Pick the files a normal install should place into a server. L4D2 workshop
+/// items are usually a `.vpk` plus a same-stem preview image.
+pub async fn select_install_artifacts(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = regular_files(dir).await?;
+    files.sort();
+
+    let vpk = files
+        .iter()
+        .find(|p| has_ext(p, "vpk"))
+        .cloned()
+        .or_else(|| {
+            files
+                .iter()
+                .filter_map(|p| std::fs::metadata(p).ok().map(|m| (p, m.len())))
+                .max_by_key(|(_, len)| *len)
+                .map(|(p, _)| p.clone())
+        })
+        .ok_or_else(|| anyhow!("no files found in downloaded content"))?;
+
+    let mut selected = vec![vpk.clone()];
+    if let Some(stem) = vpk.file_stem().and_then(|s| s.to_str()) {
+        if let Some(image) = files.iter().find(|p| {
+            p.file_stem().and_then(|s| s.to_str()) == Some(stem)
+                && (has_ext(p, "jpg") || has_ext(p, "jpeg") || has_ext(p, "png"))
+        }) {
+            selected.push(image.clone());
+        }
+    }
+
+    Ok(selected
+        .into_iter()
+        .map(|p| p.strip_prefix(dir).unwrap_or(&p).to_path_buf())
+        .collect())
+}
+
+async fn regular_files(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let mut rd = tokio::fs::read_dir(&d).await?;
+        while let Some(entry) = rd.next_entry().await? {
+            let ft = entry.file_type().await?;
+            if ft.is_dir() {
+                stack.push(entry.path());
+            } else if ft.is_file() {
+                out.push(entry.path());
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn has_ext(path: &Path, ext: &str) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case(ext))
+        .unwrap_or(false)
+}
+
+pub async fn zip_selected_files(src_root: &Path, files: &[PathBuf], dest: &Path) -> Result<()> {
+    let src_root = src_root.to_path_buf();
+    let files = files.to_vec();
+    let dest = dest.to_path_buf();
+    tokio::task::spawn_blocking(move || zip_selected_files_blocking(&src_root, &files, &dest))
+        .await
+        .context("zip task panicked")?
+}
+
+fn zip_selected_files_blocking(src_root: &Path, files: &[PathBuf], dest: &Path) -> Result<()> {
+    use std::io::{Read, Write};
+    use zip::write::SimpleFileOptions;
+
+    let file = std::fs::File::create(dest)
+        .with_context(|| format!("creating archive {}", dest.display()))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let mut buf = Vec::new();
+
+    for rel in files {
+        let src = src_root.join(rel);
+        let name = rel.to_string_lossy().replace('\\', "/");
+        zip.start_file(name, options)?;
+        let mut f = std::fs::File::open(&src)?;
+        buf.clear();
+        f.read_to_end(&mut buf)?;
+        zip.write_all(&buf)?;
+    }
+
+    zip.finish()?;
+    Ok(())
 }
 
 /// Zip an entire content folder into `dest` (`.zip`). Runs the (blocking) zip

@@ -22,12 +22,34 @@ use crate::steamcmd::{self, LoginOutcome};
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/download", post(post_download))
+        .route("/health", get(get_health))
+        .route("/diagnostics/steamcmd", get(get_steamcmd_check))
         .route("/jobs/:id", get(get_job))
         .route("/files/:id", get(get_file))
         .route("/accounts", get(list_accounts))
         .route("/accounts/login", post(post_login))
         .route("/accounts/:label", delete(delete_account))
         .with_state(state)
+}
+
+async fn get_health(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<Response> {
+    check_bearer(&headers, &state.config.token)?;
+    Ok(Json(json!({ "ok": true })).into_response())
+}
+
+async fn get_steamcmd_check(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> ApiResult<Response> {
+    check_bearer(&headers, &state.config.token)?;
+    match steamcmd::connectivity_check(&state.config).await {
+        Ok(message) => Ok(Json(json!({ "ok": true, "message": message })).into_response()),
+        Err(err) => Ok((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "ok": false, "error": format!("{err:#}") })),
+        )
+            .into_response()),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +139,7 @@ async fn post_download(
         app_id: req.app_id,
         workshop_id: req.workshop_id,
         file_name: None,
+        files: Vec::new(),
         file_token: file_token.clone(),
         size: None,
         error: None,
@@ -157,11 +180,12 @@ async fn run_download(
     let result = do_download(&state, id, account, archive, app_id, workshop_id).await;
 
     match result {
-        Ok((file_name, size)) => {
+        Ok((file_name, files, size)) => {
             state
                 .update_job(&id, |j| {
                     j.state = JobState::Ready;
                     j.file_name = Some(file_name);
+                    j.files = files;
                     j.size = Some(size);
                 })
                 .await;
@@ -188,7 +212,7 @@ async fn do_download(
     archive: bool,
     app_id: u64,
     workshop_id: u64,
-) -> anyhow::Result<(String, u64)> {
+) -> anyhow::Result<(String, Vec<String>, u64)> {
     let config = &state.config;
 
     let label = account.as_deref().unwrap_or("anonymous");
@@ -216,19 +240,18 @@ async fn do_download(
         let file_name = "archive.zip".to_string();
         let dest = job_dir.join(&file_name);
         let size = steamcmd::zip_folder(content, dest).await?;
-        Ok((file_name, size))
+        Ok((file_name.clone(), vec![file_name], size))
     } else {
-        let (src, _src_size) = steamcmd::largest_file(&content)
-            .await
-            .ok_or_else(|| anyhow::anyhow!("no files found in downloaded content"))?;
-        let file_name = src
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| format!("{workshop_id}.bin"));
+        let selected = steamcmd::select_install_artifacts(&content).await?;
+        let file_name = format!("workshop_{workshop_id}.zip");
         let dest = job_dir.join(&file_name);
-        tokio::fs::copy(&src, &dest).await?;
+        steamcmd::zip_selected_files(&content, &selected, &dest).await?;
         let size = tokio::fs::metadata(&dest).await?.len();
-        Ok((file_name, size))
+        let files = selected
+            .iter()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .collect();
+        Ok((file_name, files, size))
     }
 }
 

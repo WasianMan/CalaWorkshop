@@ -17,7 +17,7 @@ mod post {
     #[derive(ToSchema, Deserialize)]
     pub struct Payload {
         /// Destination directory inside the server volume (relative to the
-        /// server root), e.g. `left4dead2/addons/workshop`.
+        /// server root), e.g. `left4dead2/addons`.
         install_path: String,
         /// Whether the helper artifact is a zip that must be decompressed in place.
         #[serde(default)]
@@ -28,6 +28,8 @@ mod post {
     struct Response {
         installed: bool,
         file_name: String,
+        #[schema(value_type = Vec<String>)]
+        files: Vec<String>,
     }
 
     /// Place a finished download into the server via Wings: pull the helper's
@@ -50,14 +52,20 @@ mod post {
 
         let install_path = crate::validation::normalize_server_path(&data.install_path)?;
 
+        let db_job = crate::registry::get_download(&state.database, _server, download)
+            .await?
+            .ok_or_else(|| ApiResponse::error("unknown download"))?;
+        let helper_job_id = db_job
+            .helper_job_id
+            .ok_or_else(|| ApiResponse::error("download has no helper job"))?;
+
         let settings = state.settings.get().await?;
         let ext: &crate::settings::ExtensionSettingsData = settings.find_extension_settings()?;
-
         let helper =
             crate::helper::HelperClient::new(&state.client, &ext.helper_url, &ext.helper_token)
                 .ok_or_else(|| ApiResponse::error("workshop helper is not configured"))?;
 
-        let job = helper.get_job(download).await?;
+        let job = helper.get_job(helper_job_id).await?;
         if job.state != "ready" {
             return ApiResponse::error(format!("download is not ready (state: {})", job.state))
                 .with_status(StatusCode::CONFLICT)
@@ -89,7 +97,9 @@ mod post {
         )
         .await?;
 
-        if data.archive {
+        let should_decompress =
+            data.archive || file_name.ends_with(".zip") || !job.files.is_empty();
+        if should_decompress {
             api.post_servers_server_files_decompress(
                 server.uuid,
                 &wings_api::servers_server_files_decompress::post::RequestBody {
@@ -100,7 +110,7 @@ mod post {
             )
             .await?;
 
-            // Remove the archive once extracted; ignore failures (best-effort cleanup).
+            // Remove the transfer archive once extracted; ignore failures (best-effort cleanup).
             let _ = api
                 .post_servers_server_files_delete(
                     server.uuid,
@@ -112,6 +122,25 @@ mod post {
                 .await;
         }
 
+        let installed_files = if job.files.is_empty() {
+            vec![file_name.clone()]
+        } else {
+            job.files.clone()
+        };
+
+        let installed = crate::registry::create_installed(
+            &state.database,
+            server.uuid,
+            job.app_id as u32,
+            Some(job.workshop_id),
+            db_job.title.clone(),
+            &install_path,
+            installed_files.clone(),
+            "managed",
+        )
+        .await?;
+        crate::registry::mark_download_installed(&state.database, download, &install_path).await?;
+
         activity_logger
             .log(
                 "calaworkshop:install",
@@ -120,6 +149,8 @@ mod post {
                     "workshop_id": job.workshop_id,
                     "directory": install_path,
                     "file": file_name,
+                    "installed_id": installed.id,
+                    "files": installed_files.clone(),
                 }),
             )
             .await;
@@ -127,6 +158,7 @@ mod post {
         ApiResponse::new_serialized(Response {
             installed: true,
             file_name,
+            files: installed_files,
         })
         .ok()
     }

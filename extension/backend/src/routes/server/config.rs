@@ -17,6 +17,7 @@ mod get {
         default_anonymous: bool,
         helper_configured: bool,
         steam_search_available: bool,
+        can_configure: bool,
     }
 
     /// Returns the game presets and feature flags the Workshop tab needs to render.
@@ -37,6 +38,9 @@ mod get {
             helper_configured: !ext.helper_url.trim().is_empty()
                 && !ext.helper_token.trim().is_empty(),
             steam_search_available: !ext.steam_api_key.trim().is_empty(),
+            can_configure: permissions
+                .has_admin_permission("calaworkshop.configure")
+                .is_ok(),
         })
         .ok()
     }

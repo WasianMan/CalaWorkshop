@@ -34,6 +34,9 @@ pub struct Job {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_name: Option<String>,
 
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
+
     pub file_token: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -47,9 +50,8 @@ pub struct Job {
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,
-    // TODO: persist jobs — this registry is purely in-memory and is lost on restart.
-    // A v2 should back this with a small sqlite/sled store keyed by job id and
-    // reconcile against artifacts already present under `<data_dir>/jobs/`.
+    // Helper jobs are intentionally in-memory; the extension persists the
+    // user-facing job history and reconciles active helper jobs while available.
     pub jobs: Arc<RwLock<HashMap<Uuid, Job>>>,
 }
 

@@ -31,7 +31,7 @@ impl GamePreset {
         vec![GamePreset {
             app_id: 550,
             name: "Left 4 Dead 2".to_string(),
-            install_path: "left4dead2/addons/workshop".to_string(),
+            install_path: "left4dead2/addons".to_string(),
         }]
     }
 }

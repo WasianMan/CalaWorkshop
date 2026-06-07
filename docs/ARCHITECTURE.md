@@ -19,7 +19,7 @@ independent image published to GHCR.
 2. Frontend → extension:  POST /api/client/servers/{server}/calaworkshop/downloads
 3. Extension → helper:    POST /download {app_id, workshop_id, account?, archive}
                           helper runs SteamCMD, returns a job id + file token
-4. Frontend polls:        GET  …/downloads/{job}        (extension proxies helper /jobs)
+4. Frontend polls:        GET  …/downloads/{job}        (extension merges persisted DB state with helper /jobs)
 5. When the helper job is "ready":
    Frontend → extension:  POST …/downloads/{job}/install {install_path, archive}
    Extension → Wings:     post_servers_server_files_pull(server, {
@@ -55,15 +55,29 @@ gated UI with `ServerCan`.
 ## State & secrets
 
 - **Global settings** (helper URL, helper token, Steam Web API key, default-anonymous,
-  game presets) live in the panel's extension settings store. The two secrets are
-  encrypted at rest via `database.encrypt`/`decrypt` (+ base32). Presets are stored as
-  a single serde blob.
+  game presets) live in the panel's extension settings store. The Steam Web API key
+  is optional and is used only for names, previews, and search metadata; SteamCMD
+  handles downloads. The two secrets are encrypted at rest via
+  `database.encrypt`/`decrypt` (+ base32). Presets are stored as a single serde blob.
 - **Per-user data** (which panel user owns which Steam label) is *not* expressible in
   global settings, so a migration table (`dev_wasian_calaworkshop_steam_links`) is
   scaffolded for the planned per-user ownership scoping. v1 treats Steam linking as a
   thin proxy suitable for a single-admin panel.
 - The panel's `state.storage` is **not** used — that's panel-level storage (avatars,
   reports), not server volumes. Server files always go through Wings.
+
+## Persistent registry
+
+The extension stores download jobs and installed items in PostgreSQL migration
+tables. Jobs keep the panel-facing job id, helper job id, state, metadata, error
+text, install path, and exact installed filenames. Installed records track the
+server, app id, optional Workshop id, install path, VPK, preview image, source
+(`managed`, `imported`, or scan-only `unmanaged`), and exact files used for
+uninstall.
+
+The L4D2 default preset installs to `left4dead2/addons`. The installed-content
+API also scans `left4dead2/addons` and `left4dead2/addons/workshop` so existing
+VPK/JPG pairs are visible before they are imported into the registry.
 
 ## Helper internals
 

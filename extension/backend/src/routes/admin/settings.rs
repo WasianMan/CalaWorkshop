@@ -110,3 +110,96 @@ pub fn router(state: &State) -> OpenApiRouter<State> {
         .routes(routes!(put::route))
         .with_state(state.clone())
 }
+
+pub mod diagnostics {
+    use serde::Serialize;
+    use shared::{
+        GetState,
+        models::user::GetPermissionManager,
+        response::{ApiResponse, ApiResponseResult},
+    };
+    use utoipa::ToSchema;
+
+    #[derive(ToSchema, Serialize)]
+    struct Check {
+        ok: bool,
+        message: Option<String>,
+        error: Option<String>,
+    }
+
+    #[derive(ToSchema, Serialize)]
+    struct Response {
+        helper: Check,
+        steamcmd: Check,
+    }
+
+    #[utoipa::path(get, path = "/", responses(
+        (status = OK, body = inline(Response)),
+    ))]
+    pub async fn route(state: GetState, permissions: GetPermissionManager) -> ApiResponseResult {
+        permissions.has_admin_permission("calaworkshop.configure")?;
+        let settings = state.settings.get().await?;
+        let ext: &crate::settings::ExtensionSettingsData = settings.find_extension_settings()?;
+        let Some(helper) =
+            crate::helper::HelperClient::new(&state.client, &ext.helper_url, &ext.helper_token)
+        else {
+            return ApiResponse::new_serialized(Response {
+                helper: Check {
+                    ok: false,
+                    message: None,
+                    error: Some("workshop helper is not configured".to_string()),
+                },
+                steamcmd: Check {
+                    ok: false,
+                    message: None,
+                    error: Some("workshop helper is not configured".to_string()),
+                },
+            })
+            .ok();
+        };
+
+        let helper_check = match helper.health().await {
+            Ok(_) => Check {
+                ok: true,
+                message: Some("helper reachable".to_string()),
+                error: None,
+            },
+            Err(err) => Check {
+                ok: false,
+                message: None,
+                error: Some(format!("{err:#}")),
+            },
+        };
+
+        let steamcmd_check = match helper.steamcmd_check().await {
+            Ok(value) => Check {
+                ok: value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false),
+                message: value
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                error: value
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+            },
+            Err(err) => Check {
+                ok: false,
+                message: None,
+                error: Some(format!("{err:#}")),
+            },
+        };
+
+        ApiResponse::new_serialized(Response {
+            helper: helper_check,
+            steamcmd: steamcmd_check,
+        })
+        .ok()
+    }
+}
+
+pub fn diagnostics_router(state: &State) -> OpenApiRouter<State> {
+    OpenApiRouter::new()
+        .routes(routes!(diagnostics::route))
+        .with_state(state.clone())
+}

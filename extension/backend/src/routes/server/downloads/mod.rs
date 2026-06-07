@@ -3,7 +3,41 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 
 mod _download_;
 
+mod get {
+    use axum::extract::Path;
+    use serde::Serialize;
+    use shared::{
+        GetState,
+        models::user::GetPermissionManager,
+        response::{ApiResponse, ApiResponseResult},
+    };
+    use utoipa::ToSchema;
+
+    #[derive(ToSchema, Serialize)]
+    struct Response {
+        #[schema(value_type = Vec<Object>)]
+        jobs: Vec<crate::registry::DownloadJob>,
+    }
+
+    /// List active and recent persisted Workshop download jobs for this server.
+    #[utoipa::path(get, path = "/", responses(
+        (status = OK, body = inline(Response)),
+    ), params(
+        ("server" = uuid::Uuid, description = "The server ID"),
+    ))]
+    pub async fn route(
+        state: GetState,
+        permissions: GetPermissionManager,
+        Path(server): Path<uuid::Uuid>,
+    ) -> ApiResponseResult {
+        permissions.has_server_permission("workshop.read")?;
+        let jobs = crate::registry::recent_downloads(&state.database, server).await?;
+        ApiResponse::new_serialized(Response { jobs }).ok()
+    }
+}
+
 mod post {
+    use axum::extract::Path;
     use serde::{Deserialize, Serialize};
     use shared::{
         GetState,
@@ -42,6 +76,7 @@ mod post {
     pub async fn route(
         state: GetState,
         permissions: GetPermissionManager,
+        Path(server): Path<uuid::Uuid>,
         shared::Payload(data): shared::Payload<Payload>,
     ) -> ApiResponseResult {
         permissions.has_server_permission("workshop.install")?;
@@ -54,6 +89,25 @@ mod post {
 
         let settings = state.settings.get().await?;
         let ext: &crate::settings::ExtensionSettingsData = settings.find_extension_settings()?;
+
+        let metadata = crate::steam::get_published_file_details(
+            &state.client,
+            ext.steam_api_key.as_str(),
+            data.workshop_id,
+        )
+        .await
+        .unwrap_or(crate::registry::WorkshopMetadata {
+            title: None,
+            preview_url: None,
+        });
+        let job = crate::registry::create_download(
+            &state.database,
+            server,
+            data.app_id,
+            data.workshop_id,
+            metadata,
+        )
+        .await?;
 
         let helper =
             crate::helper::HelperClient::new(&state.client, &ext.helper_url, &ext.helper_token)
@@ -71,17 +125,40 @@ mod post {
             crate::validation::validate_account_label(label)?;
         }
 
-        let resp = helper
+        let resp = match helper
             .start_download(&crate::helper::DownloadRequest {
                 app_id: data.app_id,
                 workshop_id: data.workshop_id,
                 account,
                 archive: data.archive,
             })
-            .await?;
+            .await
+        {
+            Ok(resp) => resp,
+            Err(err) => {
+                crate::registry::update_download_helper(
+                    &state.database,
+                    job.id,
+                    None,
+                    "failed",
+                    Some(format!("{err:#}")),
+                )
+                .await?;
+                return Err(ApiResponse::error(format!("{err:#}")));
+            }
+        };
+
+        crate::registry::update_download_helper(
+            &state.database,
+            job.id,
+            Some(resp.id),
+            &resp.state,
+            None,
+        )
+        .await?;
 
         ApiResponse::new_serialized(Response {
-            job_id: resp.id,
+            job_id: job.id,
             state: resp.state,
         })
         .ok()
@@ -90,6 +167,7 @@ mod post {
 
 pub fn router(state: &State) -> OpenApiRouter<State> {
     OpenApiRouter::new()
+        .routes(routes!(get::route))
         .routes(routes!(post::route))
         .nest("/{download}", _download_::router(state))
         .with_state(state.clone())

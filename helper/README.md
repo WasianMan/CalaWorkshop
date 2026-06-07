@@ -19,6 +19,8 @@ by a per-job `?token=` query param instead (Wings cannot send custom headers).
 | `POST /download`              | Bearer | Start a workshop download. Returns `202 {id, state:"queued", file_token}`. |
 | `GET /jobs/{id}`              | Bearer | Poll job state (`queued`/`downloading`/`ready`/`failed`). |
 | `GET /files/{id}?token=...`   | Token  | Stream the artifact with `Content-Disposition: attachment`. `403` token mismatch, `404` unknown job, `409` not ready. |
+| `GET /health`                 | Bearer | Basic helper reachability check. |
+| `GET /diagnostics/steamcmd`   | Bearer | Lightweight anonymous SteamCMD connectivity check. |
 | `GET /accounts`               | Bearer | List linked accounts `{accounts:[{label, valid}]}`. |
 | `POST /accounts/login`        | Bearer | Establish/refresh a cached session. `200 {state:"ok"}`, `409 {state:"needs_guard"}`, `401`. |
 | `DELETE /accounts/{label}`    | Bearer | Remove a cached session. `204`. |
@@ -32,7 +34,7 @@ Errors are JSON `{ "error": "message" }` with `401`/`403`/`404`/`409`/`4xx`/`5xx
 ```
 
 - `account: null` → anonymous login. A non-null label reuses that account's cached session.
-- `archive: false` → serve the single largest regular file in the item (e.g. one `.vpk`).
+- `archive: false` → select install artifacts (a `.vpk` plus same-stem `.jpg`/`.jpeg`/`.png` when present) and serve them as a small transfer zip.
 - `archive: true` → zip the whole item folder into `archive.zip`.
 
 ## Configuration (env vars)
@@ -124,5 +126,5 @@ helper/
     └── routes.rs     # router, bearer/token auth, all handlers
 ```
 
-> **v1 note:** the job registry is in-memory and does not survive a restart
-> (`// TODO: persist jobs`). Artifacts on disk under `<data_dir>/jobs/` do persist.
+> **v1 note:** the helper job registry is in-memory and does not survive a restart.
+> The extension persists its own job history and installed-item registry.

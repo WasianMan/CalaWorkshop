@@ -18,7 +18,6 @@ pub struct DownloadRequest {
 pub struct DownloadResponse {
     pub id: uuid::Uuid,
     pub state: String,
-    pub file_token: String,
 }
 
 #[derive(Deserialize)]
@@ -28,6 +27,8 @@ pub struct JobResponse {
     pub app_id: u32,
     pub workshop_id: u64,
     pub file_name: Option<String>,
+    #[serde(default)]
+    pub files: Vec<String>,
     pub file_token: String,
     pub size: Option<u64>,
     pub error: Option<String>,
@@ -99,6 +100,33 @@ impl<'a> HelperClient<'a> {
             .error_for_status()?
             .json()
             .await?)
+    }
+
+    pub async fn health(&self) -> Result<serde_json::Value, anyhow::Error> {
+        Ok(self
+            .client
+            .get(format!("{}/health", self.base_url))
+            .bearer_auth(&self.token)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?)
+    }
+
+    pub async fn steamcmd_check(&self) -> Result<serde_json::Value, anyhow::Error> {
+        let resp = self
+            .client
+            .get(format!("{}/diagnostics/steamcmd", self.base_url))
+            .bearer_auth(&self.token)
+            .send()
+            .await?;
+        let status = resp.status();
+        let mut body = resp.json::<serde_json::Value>().await.unwrap_or_default();
+        if !status.is_success() && body.get("error").is_none() {
+            body["error"] = serde_json::Value::String(format!("helper returned {status}"));
+        }
+        Ok(body)
     }
 
     pub async fn list_accounts(&self) -> Result<serde_json::Value, anyhow::Error> {

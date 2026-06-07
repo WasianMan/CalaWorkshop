@@ -12,8 +12,10 @@ use shared::{
 use std::sync::Arc;
 
 mod helper;
+mod registry;
 mod routes;
 mod settings;
+mod steam;
 mod validation;
 
 #[derive(Default)]

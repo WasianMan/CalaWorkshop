@@ -114,8 +114,9 @@ it up.
 1. Admin → **Extensions → Calagopus Workshop**:
    - **Helper URL**: `http://calagopus-workshop-helper:8090` (default).
    - **Helper token**: the same value as `WORKSHOP_HELPER_TOKEN`.
-   - **Steam Web API key** (optional, for future search/metadata).
-   - **Game presets** — Left 4 Dead 2 → `left4dead2/addons/workshop` is seeded.
+   - **Steam Web API key** (optional). SteamCMD handles downloads; this key is
+     only for names, previews, and search metadata.
+   - **Game presets** - Left 4 Dead 2 -> `left4dead2/addons` is seeded.
 2. Grant the `workshop.read` / `workshop.install` / `workshop.remove` **server**
    permissions to yourself/subusers, and `calaworkshop.link-steam` (user) for linking.
 3. On a server, open the **Workshop** tab, paste a Workshop URL/ID, and install.
@@ -144,4 +145,5 @@ helper service and mounts in place for when you switch back.
 | Helper container restarts / exits immediately | Missing `WORKSHOP_HELPER_TOKEN` (it refuses to start without one). Check the env var. |
 | Workshop tab says "helper is not configured" | Helper URL/token not set in admin settings, or token mismatch with the env var. |
 | L4D2 downloads fail with anonymous | Expected — link a Steam account that owns L4D2 and select it when installing. |
+| SteamCMD reports `CreateBoundSocket: failed to create socket, error [no name available] (38)` or `No Connection` | Run the admin diagnostics check first. This can be a Docker/seccomp compatibility issue in newer Docker releases with older SteamCMD socket paths. Do not switch the whole stack to host networking. Check `docker version`, `docker info`, and `docker compose logs calagopus-workshop-helper`. As a temporary diagnostic only, test the helper image with `--security-opt seccomp=unconfined`; if that changes the failure, prefer updating Docker/SteamCMD base images or applying a narrow seccomp profile rather than leaving production unconfined. |
 | Wings "pull" fails to fetch the file | Helper not reachable from the panel/Wings network. Confirm both are on the same compose network and the URL is the service name. |

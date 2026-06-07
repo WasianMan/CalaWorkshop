@@ -2,6 +2,8 @@ import { faPlus, faTrash } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   ActionIcon,
+  Alert,
+  Badge,
   Button,
   Card,
   Group,
@@ -15,6 +17,7 @@ import {
 } from '@mantine/core';
 import { useEffect, useState } from 'react';
 import { httpErrorToHuman } from '@/api/axios.ts';
+import getDiagnostics, { type Diagnostics } from '../api/admin/getDiagnostics.ts';
 import getSettings from '../api/admin/getSettings.ts';
 import updateSettings from '../api/admin/updateSettings.ts';
 import type { GamePreset } from '../api/getConfig.ts';
@@ -32,6 +35,8 @@ export default function ConfigurationPage() {
   const [defaultAnonymous, setDefaultAnonymous] = useState(true);
   const [presets, setPresets] = useState<GamePreset[]>([]);
   const [saving, setSaving] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
 
   useEffect(() => {
     getSettings()
@@ -73,6 +78,17 @@ export default function ConfigurationPage() {
     }
   };
 
+  const runDiagnostics = async () => {
+    setDiagnosticsLoading(true);
+    try {
+      setDiagnostics(await getDiagnostics());
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+    } finally {
+      setDiagnosticsLoading(false);
+    }
+  };
+
   if (!loaded) {
     return <Text c='dimmed'>Loading…</Text>;
   }
@@ -105,8 +121,8 @@ export default function ConfigurationPage() {
             label='Steam Web API key'
             description={
               steamApiKeySet
-                ? 'A key is set — leave blank to keep it. Used for search/metadata only.'
-                : 'Optional. Used for search/metadata only, never for downloads.'
+                ? 'A key is set - leave blank to keep it. SteamCMD handles downloads; this key is only for names, previews, and search metadata.'
+                : 'Optional. SteamCMD handles downloads; this key is only for names, previews, and search metadata.'
             }
             placeholder={steamApiKeySet ? '••••••••' : ''}
             value={steamApiKey}
@@ -118,6 +134,33 @@ export default function ConfigurationPage() {
             onChange={(e) => setDefaultAnonymous(e.currentTarget.checked)}
           />
         </Stack>
+      </Card>
+
+      <Card withBorder radius='md' padding='lg'>
+        <Group justify='space-between' mb='sm'>
+          <Title order={4}>Diagnostics</Title>
+          <Button variant='subtle' loading={diagnosticsLoading} onClick={runDiagnostics}>
+            Run checks
+          </Button>
+        </Group>
+        {diagnostics ? (
+          <Stack gap='xs'>
+            {(['helper', 'steamcmd'] as const).map((key) => (
+              <Alert key={key} color={diagnostics[key].ok ? 'green' : 'red'} title={
+                <Group gap='xs'>
+                  <span>{key === 'helper' ? 'Helper' : 'SteamCMD'}</span>
+                  <Badge color={diagnostics[key].ok ? 'green' : 'red'}>
+                    {diagnostics[key].ok ? 'ok' : 'failed'}
+                  </Badge>
+                </Group>
+              }>
+                {diagnostics[key].message ?? diagnostics[key].error ?? 'No details returned'}
+              </Alert>
+            ))}
+          </Stack>
+        ) : (
+          <Text c='dimmed' size='sm'>Run checks after saving helper settings.</Text>
+        )}
       </Card>
 
       <Card withBorder radius='md' padding='lg'>

@@ -19,7 +19,11 @@ mod get {
         state: String,
         app_id: u32,
         workshop_id: u64,
+        title: Option<String>,
+        preview_url: Option<String>,
         file_name: Option<String>,
+        #[schema(value_type = Vec<String>)]
+        files: Vec<String>,
         size: Option<u64>,
         error: Option<String>,
     }
@@ -39,22 +43,47 @@ mod get {
     ) -> ApiResponseResult {
         permissions.has_server_permission("workshop.read")?;
 
-        let settings = state.settings.get().await?;
-        let ext: &crate::settings::ExtensionSettingsData = settings.find_extension_settings()?;
+        let mut job = crate::registry::get_download(&state.database, _server, download)
+            .await?
+            .ok_or_else(|| ApiResponse::error("unknown download"))?;
 
-        let helper =
-            crate::helper::HelperClient::new(&state.client, &ext.helper_url, &ext.helper_token)
-                .ok_or_else(|| ApiResponse::error("workshop helper is not configured"))?;
-
-        let job = helper.get_job(download).await?;
+        if let Some(helper_job_id) = job.helper_job_id {
+            let settings = state.settings.get().await?;
+            let ext: &crate::settings::ExtensionSettingsData =
+                settings.find_extension_settings()?;
+            if let Some(helper) =
+                crate::helper::HelperClient::new(&state.client, &ext.helper_url, &ext.helper_token)
+            {
+                if matches!(job.state.as_str(), "queued" | "downloading" | "ready") {
+                    if let Ok(helper_job) = helper.get_job(helper_job_id).await {
+                        crate::registry::update_download_from_helper(
+                            &state.database,
+                            job.id,
+                            &helper_job.state,
+                            helper_job.file_name.clone(),
+                            helper_job.files.clone(),
+                            helper_job.error.clone(),
+                        )
+                        .await?;
+                        job.state = helper_job.state;
+                        job.file_name = helper_job.file_name;
+                        job.files = helper_job.files;
+                        job.error = helper_job.error;
+                    }
+                }
+            }
+        }
 
         ApiResponse::new_serialized(Response {
             id: job.id,
             state: job.state,
-            app_id: job.app_id,
-            workshop_id: job.workshop_id,
+            app_id: job.app_id as u32,
+            workshop_id: job.workshop_id as u64,
+            title: job.title,
+            preview_url: job.preview_url,
             file_name: job.file_name,
-            size: job.size,
+            files: job.files,
+            size: None,
             error: job.error,
         })
         .ok()

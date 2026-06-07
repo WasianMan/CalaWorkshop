@@ -54,7 +54,8 @@ Step-by-step (including Coolify): **[docs/DEPLOY.md](./docs/DEPLOY.md)**.
 
 There is **no passwordless download token**:
 
-- A **Steam Web API key** is a real token but only powers search/metadata.
+- A **Steam Web API key** is a real token but only powers names, previews, and
+  search metadata. SteamCMD handles downloads.
 - Downloading owned/private content requires a **SteamCMD login** (username +
   password + a one-time Steam Guard code); the helper caches the session.
 - **Anonymous downloads only work for some games. Left 4 Dead 2 (550) requires an
@@ -98,13 +99,14 @@ calaworkshop/
 
 **Current: `v0.1.2` — alpha.** Functional end-to-end, but expect rough edges.
 
-Working: per-server Workshop tab; paste URL/ID → download → Wings-pull install; job
-tracking; installed-content list + delete; admin config with encrypted secrets;
-Steam account linking (login + Guard) proxied to the helper.
+Working: per-server Workshop tab; paste URL/ID → download → Wings-pull install;
+persistent job tracking; managed/imported/unmanaged installed-content list;
+precise uninstall; admin config with encrypted secrets and diagnostics; Steam
+account linking (login + Guard) proxied to the helper.
 
 Planned: search GUI (`IPublishedFileService/QueryFiles`) + collection expansion;
-per-user ownership scoping of Steam links; update/reinstall actions; richer item
-previews; multi-node helper-reachability guidance.
+per-user ownership scoping of Steam links; update/reinstall actions; full local
+preview streaming once a Wings file-contents binding is available.
 
 ## License
 

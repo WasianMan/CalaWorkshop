@@ -3,6 +3,7 @@ import { axiosInstance } from '@/api/axios.ts';
 export type InstallResult = {
   installed: boolean;
   fileName: string;
+  files: string[];
 };
 
 export default async (

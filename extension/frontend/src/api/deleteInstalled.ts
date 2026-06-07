@@ -1,9 +1,8 @@
 import { axiosInstance } from '@/api/axios.ts';
 
-export default async (serverUuid: string, path: string, files: string[]): Promise<number> => {
+export default async (serverUuid: string, installedId: string): Promise<number> => {
   const { data } = await axiosInstance.delete(
-    `/api/client/servers/${serverUuid}/calaworkshop/installed`,
-    { data: { path, files } },
+    `/api/client/servers/${serverUuid}/calaworkshop/installed/${installedId}`,
   );
   return data.deleted ?? 0;
 };

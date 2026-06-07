@@ -1,17 +1,20 @@
 import { axiosInstance } from '@/api/axios.ts';
 
 export type InstalledEntry = {
-  name: string;
-  directory?: boolean;
-  size?: number;
-  // Wings DirectoryEntry carries more fields; we only rely on name/size here.
-  [key: string]: unknown;
+  id: string | null;
+  title: string;
+  appId: number;
+  workshopId: number | null;
+  installPath: string;
+  vpkFile: string | null;
+  imageFile: string | null;
+  files: string[];
+  source: 'managed' | 'unmanaged' | 'imported' | string;
 };
 
-export default async (serverUuid: string, path: string): Promise<InstalledEntry[]> => {
+export default async (serverUuid: string): Promise<InstalledEntry[]> => {
   const { data } = await axiosInstance.get(
     `/api/client/servers/${serverUuid}/calaworkshop/installed`,
-    { params: { path } },
   );
-  return data.entries ?? [];
+  return data.items ?? [];
 };

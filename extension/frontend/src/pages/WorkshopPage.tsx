@@ -1,4 +1,4 @@
-import { faDownload, faRotate, faTrash } from '@fortawesome/free-solid-svg-icons';
+import { faDownload, faRotate, faTrash, faPlus } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   ActionIcon,
@@ -21,7 +21,9 @@ import { httpErrorToHuman } from '@/api/axios.ts';
 import deleteInstalled from '../api/deleteInstalled.ts';
 import getConfig, { type WorkshopConfig } from '../api/getConfig.ts';
 import getJob from '../api/getJob.ts';
+import importInstalled from '../api/importInstalled.ts';
 import installJob from '../api/installJob.ts';
+import listDownloads from '../api/listDownloads.ts';
 import listInstalled, { type InstalledEntry } from '../api/listInstalled.ts';
 import startDownload from '../api/startDownload.ts';
 import listAccounts from '../api/steam/listAccounts.ts';
@@ -31,8 +33,9 @@ import { useToast } from '@/providers/ToastProvider.tsx';
 import { useServerStore } from '@/stores/server.ts';
 
 type JobRow = {
-  jobId: string;
+  id: string;
   workshopId: number;
+  title?: string | null;
   state: string;
   fileName?: string | null;
   error?: string | null;
@@ -40,7 +43,6 @@ type JobRow = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Extract a numeric workshop id from a pasted URL or raw id. */
 function parseWorkshopId(input: string): number | null {
   const trimmed = input.trim();
   const fromQuery = trimmed.match(/[?&]id=(\d+)/);
@@ -56,7 +58,6 @@ export default function WorkshopPage() {
 
   const [config, setConfig] = useState<WorkshopConfig | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-
   const [presetIndex, setPresetIndex] = useState(0);
   const [installPath, setInstallPath] = useState('');
   const [workshopInput, setWorkshopInput] = useState('');
@@ -64,15 +65,21 @@ export default function WorkshopPage() {
   const [account, setAccount] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
-
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [installed, setInstalled] = useState<InstalledEntry[]>([]);
   const [installedLoading, setInstalledLoading] = useState(false);
 
-  const updateJob = (jobId: string, patch: Partial<JobRow>) =>
-    setJobs((prev) => prev.map((j) => (j.jobId === jobId ? { ...j, ...patch } : j)));
+  const updateJob = (id: string, patch: Partial<JobRow>) =>
+    setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
 
-  // Initial load: config + linked accounts.
+  const loadInstalled = () => {
+    setInstalledLoading(true);
+    listInstalled(server.uuid)
+      .then(setInstalled)
+      .catch(() => setInstalled([]))
+      .finally(() => setInstalledLoading(false));
+  };
+
   useEffect(() => {
     getConfig(server.uuid)
       .then((cfg) => {
@@ -81,26 +88,33 @@ export default function WorkshopPage() {
           setPresetIndex(0);
           setInstallPath(cfg.presets[0].installPath);
         }
+        if (cfg.canConfigure) {
+          listAccounts()
+            .then((list) => setAccounts(list.map((a) => a.label)))
+            .catch(() => setAccounts([]));
+        }
       })
       .catch((err) => setLoadError(httpErrorToHuman(err)));
 
-    listAccounts()
-      .then((list) => setAccounts(list.map((a) => a.label)))
-      .catch(() => setAccounts([]));
+    listDownloads(server.uuid)
+      .then((rows) =>
+        setJobs(
+          rows.map((job) => ({
+            id: job.id,
+            workshopId: job.workshopId,
+            state: job.state,
+            fileName: job.fileName,
+            error: job.error,
+            title: job.title,
+          })),
+        ),
+      )
+      .catch(() => setJobs([]));
+    loadInstalled();
     // biome-ignore lint/correctness/useExhaustiveDependencies: load once per server
   }, [server.uuid]);
 
   const preset = useMemo(() => config?.presets[presetIndex], [config, presetIndex]);
-
-  const loadInstalled = (path?: string) => {
-    const target = (path ?? installPath).trim();
-    if (!target) return;
-    setInstalledLoading(true);
-    listInstalled(server.uuid, target)
-      .then(setInstalled)
-      .catch(() => setInstalled([]))
-      .finally(() => setInstalledLoading(false));
-  };
 
   const pollJob = async (jobId: string, path: string, isArchive: boolean) => {
     for (;;) {
@@ -123,8 +137,8 @@ export default function WorkshopPage() {
         try {
           const result = await installJob(server.uuid, jobId, path, isArchive);
           updateJob(jobId, { state: 'installed', fileName: result.fileName });
-          addToast(`Installed ${result.fileName}`, 'success');
-          loadInstalled(path);
+          addToast(`Installed ${result.files?.join(', ') || result.fileName}`, 'success');
+          loadInstalled();
         } catch (err) {
           updateJob(jobId, { state: 'failed', error: httpErrorToHuman(err) });
           addToast(httpErrorToHuman(err), 'error');
@@ -152,10 +166,10 @@ export default function WorkshopPage() {
       const { jobId, state } = await startDownload(server.uuid, {
         appId: preset.appId,
         workshopId,
-        account: account,
+        account: config?.canConfigure ? account : null,
         archive,
       });
-      setJobs((prev) => [{ jobId, workshopId, state }, ...prev]);
+      setJobs((prev) => [{ id: jobId, workshopId, state }, ...prev]);
       setWorkshopInput('');
       void pollJob(jobId, path, archive);
     } catch (err) {
@@ -165,10 +179,21 @@ export default function WorkshopPage() {
     }
   };
 
-  const handleDelete = async (name: string) => {
+  const handleDelete = async (entry: InstalledEntry) => {
+    if (!entry.id) return;
     try {
-      await deleteInstalled(server.uuid, installPath.trim(), [name]);
-      addToast(`Removed ${name}`, 'success');
+      await deleteInstalled(server.uuid, entry.id);
+      addToast(`Removed ${entry.title}`, 'success');
+      loadInstalled();
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+    }
+  };
+
+  const handleTrack = async (entry: InstalledEntry) => {
+    try {
+      await importInstalled(server.uuid, entry);
+      addToast(`Tracking ${entry.title}`, 'success');
       loadInstalled();
     } catch (err) {
       addToast(httpErrorToHuman(err), 'error');
@@ -176,23 +201,15 @@ export default function WorkshopPage() {
   };
 
   const stateColor = (state: string) =>
-    state === 'installed'
-      ? 'green'
-      : state === 'failed'
-        ? 'red'
-        : state === 'ready' || state === 'installing'
-          ? 'blue'
-          : 'gray';
+    state === 'installed' ? 'green' : state === 'failed' ? 'red' : state === 'ready' || state === 'installing' ? 'blue' : 'gray';
 
   return (
     <ServerContentContainer title='Workshop'>
       <Stack gap='md'>
         {loadError ? <Alert color='red' title='Failed to load'>{loadError}</Alert> : null}
-
         {config && !config.helperConfigured ? (
           <Alert color='yellow' title='Helper not configured'>
-            An administrator needs to set the workshop helper URL and token in the extension
-            settings before downloads will work.
+            An administrator needs to set the workshop helper URL and token in the extension settings before downloads will work.
           </Alert>
         ) : null}
 
@@ -200,7 +217,6 @@ export default function WorkshopPage() {
           <Card withBorder radius='md' padding='lg'>
             <Stack gap='sm'>
               <Title order={4}>Install a Workshop item</Title>
-
               <Group grow align='end'>
                 <Select
                   label='Game'
@@ -212,40 +228,26 @@ export default function WorkshopPage() {
                     if (config?.presets[idx]) setInstallPath(config.presets[idx].installPath);
                   }}
                 />
-                <TextInput
-                  label='Install path'
-                  value={installPath}
-                  onChange={(e) => setInstallPath(e.currentTarget.value)}
-                />
+                <TextInput label='Install path' value={installPath} onChange={(e) => setInstallPath(e.currentTarget.value)} />
               </Group>
-
               <TextInput
                 label='Workshop URL or ID'
                 placeholder='https://steamcommunity.com/sharedfiles/filedetails/?id=123456789'
                 value={workshopInput}
                 onChange={(e) => setWorkshopInput(e.currentTarget.value)}
               />
-
               <Group align='end'>
-                <Select
-                  label='Steam account'
-                  description='Anonymous unless you pick a linked account'
-                  data={[{ value: '', label: 'Anonymous' }, ...accounts.map((a) => ({ value: a, label: a }))]}
-                  value={account ?? ''}
-                  onChange={(v) => setAccount(v ? v : null)}
-                  w={240}
-                />
-                <Switch
-                  label='Archive (zip + extract)'
-                  checked={archive}
-                  onChange={(e) => setArchive(e.currentTarget.checked)}
-                />
-                <Button
-                  leftSection={<FontAwesomeIcon icon={faDownload} />}
-                  loading={submitting}
-                  onClick={handleInstall}
-                  disabled={!config?.helperConfigured}
-                >
+                {config?.canConfigure ? (
+                  <Select
+                    label='Steam account'
+                    data={[{ value: '', label: 'Anonymous' }, ...accounts.map((a) => ({ value: a, label: a }))]}
+                    value={account ?? ''}
+                    onChange={(v) => setAccount(v ? v : null)}
+                    w={240}
+                  />
+                ) : null}
+                <Switch label='Archive whole item' checked={archive} onChange={(e) => setArchive(e.currentTarget.checked)} />
+                <Button leftSection={<FontAwesomeIcon icon={faDownload} />} loading={submitting} onClick={handleInstall} disabled={!config?.helperConfigured}>
                   Download &amp; install
                 </Button>
               </Group>
@@ -259,21 +261,19 @@ export default function WorkshopPage() {
             <Table>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Workshop ID</Table.Th>
+                  <Table.Th>Workshop</Table.Th>
                   <Table.Th>File</Table.Th>
                   <Table.Th>Status</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
                 {jobs.map((job) => (
-                  <Table.Tr key={job.jobId}>
-                    <Table.Td>{job.workshopId}</Table.Td>
-                    <Table.Td>{job.fileName ?? '—'}</Table.Td>
+                  <Table.Tr key={job.id}>
+                    <Table.Td>{job.title ?? job.workshopId}</Table.Td>
+                    <Table.Td>{job.fileName ?? '-'}</Table.Td>
                     <Table.Td>
                       <Badge color={stateColor(job.state)}>{job.state}</Badge>
-                      {job.error ? (
-                        <Text size='xs' c='red'>{job.error}</Text>
-                      ) : null}
+                      {job.error ? <Text size='xs' c='red'>{job.error}</Text> : null}
                     </Table.Td>
                   </Table.Tr>
                 ))}
@@ -285,38 +285,43 @@ export default function WorkshopPage() {
         <Card withBorder radius='md' padding='lg'>
           <Group justify='space-between' mb='sm'>
             <Title order={4}>Installed content</Title>
-            <Button
-              variant='subtle'
-              leftSection={<FontAwesomeIcon icon={faRotate} />}
-              onClick={() => loadInstalled()}
-            >
-              Refresh
-            </Button>
+            <Button variant='subtle' leftSection={<FontAwesomeIcon icon={faRotate} />} onClick={loadInstalled}>Refresh</Button>
           </Group>
           {installedLoading ? (
             <Loader size='sm' />
           ) : installed.length === 0 ? (
-            <Text c='dimmed' size='sm'>
-              Nothing loaded. Click Refresh to list <code>{installPath || '(set an install path)'}</code>.
-            </Text>
+            <Text c='dimmed' size='sm'>No Workshop files found in the L4D2 addon scan paths.</Text>
           ) : (
             <Table>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Name</Table.Th>
+                  <Table.Th>Item</Table.Th>
+                  <Table.Th>Path</Table.Th>
+                  <Table.Th>Source</Table.Th>
                   <Table.Th />
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
                 {installed.map((entry) => (
-                  <Table.Tr key={entry.name}>
-                    <Table.Td>{entry.name}</Table.Td>
+                  <Table.Tr key={`${entry.installPath}:${entry.files.join('|')}:${entry.id ?? 'unmanaged'}`}>
+                    <Table.Td>
+                      <Text fw={500}>{entry.title}</Text>
+                      <Text size='xs' c='dimmed'>{entry.files.join(', ')}</Text>
+                    </Table.Td>
+                    <Table.Td>{entry.installPath}</Table.Td>
+                    <Table.Td><Badge color={entry.source === 'unmanaged' ? 'yellow' : 'green'}>{entry.source}</Badge></Table.Td>
                     <Table.Td align='right'>
-                      <ServerCan action='workshop.remove'>
-                        <ActionIcon color='red' variant='subtle' onClick={() => handleDelete(entry.name)}>
-                          <FontAwesomeIcon icon={faTrash} />
-                        </ActionIcon>
-                      </ServerCan>
+                      {entry.source === 'unmanaged' ? (
+                        <ServerCan action='workshop.install'>
+                          <Button size='xs' variant='subtle' leftSection={<FontAwesomeIcon icon={faPlus} />} onClick={() => handleTrack(entry)}>Track</Button>
+                        </ServerCan>
+                      ) : (
+                        <ServerCan action='workshop.remove'>
+                          <ActionIcon color='red' variant='subtle' onClick={() => handleDelete(entry)}>
+                            <FontAwesomeIcon icon={faTrash} />
+                          </ActionIcon>
+                        </ServerCan>
+                      )}
                     </Table.Td>
                   </Table.Tr>
                 ))}

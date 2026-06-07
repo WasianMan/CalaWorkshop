@@ -11,6 +11,7 @@ export type WorkshopConfig = {
   defaultAnonymous: boolean;
   helperConfigured: boolean;
   steamSearchAvailable: boolean;
+  canConfigure: boolean;
 };
 
 export default async (serverUuid: string): Promise<WorkshopConfig> => {

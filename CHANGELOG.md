@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
-## [Unreleased]
+## [0.2.1]
 
 ### Added
 - **Per-user Steam account linking.** Linked accounts are now owned by the panel

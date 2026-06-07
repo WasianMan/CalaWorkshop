@@ -78,7 +78,10 @@ pub async fn upsert(
             (user_uuid, label, helper_label, steam_username, created_at, updated_at)
         VALUES ($1, $2, $3, $4, now(), now())
         ON CONFLICT (user_uuid, label)
-        DO UPDATE SET steam_username = EXCLUDED.steam_username, updated_at = now()
+        DO UPDATE SET
+            helper_label = COALESCE(dev_wasian_calaworkshop_steam_links.helper_label, EXCLUDED.helper_label),
+            steam_username = EXCLUDED.steam_username,
+            updated_at = now()
         RETURNING label, helper_label, steam_username
         "#,
     )

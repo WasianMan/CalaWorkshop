@@ -58,7 +58,7 @@ export default function SteamLinkPage() {
         guardCode: needsGuard && guardCode.trim() ? guardCode.trim() : null,
       });
       if (result.state === 'ok') {
-        addToast(`Linked ${label}`, 'success');
+        addToast(result.verified ? `Linked and verified ${label}` : `Linked ${label}`, 'success');
         setNeedsGuard(false);
         setPassword('');
         setGuardCode('');
@@ -98,7 +98,8 @@ export default function SteamLinkPage() {
           caches the session — your password is never stored. Accounts you link here are tied to
           your user and are not visible to other panel users. A fresh login may need Steam Guard:
           check your Steam mobile app for an approval prompt, or enter the generated code from the
-          app's Steam Guard page when prompted.
+          app's Steam Guard page when prompted. After login, the helper runs a passwordless
+          SteamCMD check to verify the cached session can be reused for downloads.
         </Alert>
 
         <Card withBorder radius='md' padding='lg'>

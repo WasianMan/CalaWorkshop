@@ -97,7 +97,10 @@ network as `http://calagopus-workshop-helper:8090`.
   (`POST /accounts/login`), steamcmd caches a session/sentry file in that label's
   working dir, and later downloads reuse it. The helper runs steamcmd with `HOME`
   and XDG cache/config/data directories pointed at that label directory so each
-  linked account keeps an isolated, persistent SteamCMD session.
+  linked account keeps an isolated, persistent SteamCMD session. After a successful
+  password/Guard login, the helper immediately runs `+login <username> +quit`
+  without the password to verify that cached session is reusable before marking
+  the account linked.
 - We persist **only the username** per label in `<data_dir>/steam/<label>/account.json`.
   The **password is never written to disk**. Account-based downloads run steamcmd
   in that workdir with `+login <username>` and rely on the cached session.

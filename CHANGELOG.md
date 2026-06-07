@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
+## [0.2.4]
+
+### Added
+- Steam Link now verifies a newly linked account by running a passwordless
+  cached-session SteamCMD login before marking it linked.
+
+### Fixed
+- Helper SteamCMD login parsing now recognizes successful mobile-approval and
+  Steam Guard-code logins when SteamCMD inserts extra post-logon compatibility
+  text before the final `OK`, preventing a successful login from looping back to
+  `needs_guard`.
+
 ## [0.2.3]
 
 ### Added

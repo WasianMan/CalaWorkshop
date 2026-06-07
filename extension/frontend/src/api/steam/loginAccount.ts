@@ -10,6 +10,7 @@ export type LoginInput = {
 export type LoginResult = {
   // 'ok' on success, 'needs_guard' when a Steam Guard code is required (HTTP 409).
   state: 'ok' | 'needs_guard' | string;
+  verified?: boolean;
 };
 
 export default async (input: LoginInput): Promise<LoginResult> => {

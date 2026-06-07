@@ -183,6 +183,40 @@ pub async fn login(
     parse_login_outcome(&combined)
 }
 
+/// Verify that the just-created cached session is usable without resending the
+/// password or Steam Guard code.
+pub async fn verify_cached_login(config: &Config, workdir: &Path, username: &str) -> Result<()> {
+    tokio::fs::create_dir_all(workdir)
+        .await
+        .with_context(|| format!("creating steam workdir {}", workdir.display()))?;
+
+    let mut cmd = Command::new(&config.steamcmd_bin);
+    apply_noninteractive_flags(&mut cmd);
+    apply_steam_home(&mut cmd, workdir);
+    cmd.arg("+force_install_dir")
+        .arg(workdir)
+        .arg("+login")
+        .arg(username)
+        .arg("+quit")
+        .current_dir(workdir)
+        .kill_on_drop(true);
+
+    let output = run_steamcmd(cmd, LOGIN_TIMEOUT, &config.steamcmd_bin).await?;
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    tracing::debug!(%combined, "steamcmd cached-session verification finished");
+
+    match parse_login_outcome(&combined)? {
+        LoginOutcome::Ok => Ok(()),
+        LoginOutcome::NeedsGuard => bail!("cached SteamCMD session still requires Steam Guard"),
+        LoginOutcome::InvalidCredentials => bail!("cached SteamCMD session was not accepted"),
+        LoginOutcome::ConnectivityFailed(message) => bail!(message),
+    }
+}
+
 fn parse_login_outcome(combined: &str) -> Result<LoginOutcome> {
     // Detection is heuristic — steamcmd's wording varies across versions. We look
     // for the common Steam Guard prompts. Note: in a non-interactive process
@@ -201,7 +235,7 @@ fn parse_login_outcome(combined: &str) -> Result<LoginOutcome> {
     // "protected by a Steam Guard mobile authenticator" notice AND the success
     // lines, so checking guard first would misreport a completed login as
     // needing a code (and the caller would never persist the session).
-    if combined.contains("Logged in OK") || combined.contains("Waiting for user info...OK") {
+    if login_output_indicates_success(combined) {
         return Ok(LoginOutcome::Ok);
     }
 
@@ -224,6 +258,21 @@ fn parse_login_outcome(combined: &str) -> Result<LoginOutcome> {
     // Ambiguous output: be conservative and treat as invalid credentials so the
     // caller doesn't believe a session exists when it may not.
     Ok(LoginOutcome::InvalidCredentials)
+}
+
+fn login_output_indicates_success(combined: &str) -> bool {
+    combined.contains("Logged in OK")
+        || combined.contains("Waiting for user info...OK")
+        || combined.lines().any(|line| {
+            let lower = line.to_lowercase();
+            lower.contains("logging in user")
+                && lower.contains("to steam public")
+                && lower.trim_end().ends_with("ok")
+        })
+        || combined.lines().any(|line| {
+            let lower = line.to_lowercase();
+            lower.starts_with("waiting for user info") && lower.trim_end().ends_with("ok")
+        })
 }
 
 pub async fn connectivity_check(config: &Config) -> Result<String> {
@@ -583,7 +632,7 @@ mod tests {
     fn login_no_connection_is_not_invalid_credentials() {
         let outcome = parse_login_outcome(
             "Loading Steam API...CreateBoundSocket: failed to create socket, error [no name available] (38)\n\
-             Logging in user 'example' [U:1:0] to Steam Public...Retrying...\n\
+             Logging in user 'example' [U:1:2345678] to Steam Public...Retrying...\n\
              ERROR (No Connection)\n",
         )
         .expect("parse login output");
@@ -610,6 +659,32 @@ mod tests {
              Waiting for confirmation...OK\n\
              Waiting for client config...OK\n\
              Waiting for user info...OK\n",
+        )
+        .expect("parse login output");
+        assert_eq!(outcome, LoginOutcome::Ok);
+    }
+
+    #[test]
+    fn mobile_authenticator_success_with_compat_text_is_ok() {
+        let outcome = parse_login_outcome(
+            "Logging in user 'example' [U:1:2345678] to Steam Public...This account is protected by a Steam Guard mobile authenticator.\n\
+             Please confirm the login in the Steam Mobile app on your phone.\n\
+             Waiting for confirmation...OK\n\
+             Waiting for client config...OK\n\
+             Waiting for user info...Waiting for compat in post-logon took: 0.152688sOK\n",
+        )
+        .expect("parse login output");
+        assert_eq!(outcome, LoginOutcome::Ok);
+    }
+
+    #[test]
+    fn guard_code_success_with_public_ok_is_ok() {
+        let outcome = parse_login_outcome(
+            "Logging in using username/password.\n\
+             Steam Guard code provided.\n\
+             Logging in user 'example' [U:1:2345678] to Steam Public...OK\n\
+             Waiting for client config...OK\n\
+             Waiting for user info...Waiting for compat in post-logon took: 0.098278sOK\n",
         )
         .expect("parse login output");
         assert_eq!(outcome, LoginOutcome::Ok);

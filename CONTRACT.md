@@ -110,7 +110,8 @@ Request:
 ```json
 { "label": "f3a9...opaque", "username": "steamuser", "password": "...", "guard_code": null }
 ```
-- `200 { "state": "ok" }` — session established/refreshed.
+- `200 { "state": "ok", "verified": true }` — session established/refreshed and
+  verified with a passwordless cached-session SteamCMD login.
 - `409 { "state": "needs_guard" }` — re-call with `guard_code` filled in.
 - `401 { "error": "invalid credentials" }`.
 

@@ -1,6 +1,6 @@
 [package]
 name = "calaworkshop-helper"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 description = "SteamCMD helper microservice for the Calagopus calaworkshop extension"
 license = "MIT"

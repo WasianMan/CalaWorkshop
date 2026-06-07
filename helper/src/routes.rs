@@ -393,12 +393,22 @@ async fn post_login(
 
     match outcome {
         LoginOutcome::Ok => {
+            steamcmd::verify_cached_login(&state.config, &workdir, &req.username)
+                .await
+                .map_err(|e| {
+                    ApiError::new(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        format!(
+                            "Steam login succeeded, but cached-session verification failed: {e:#}"
+                        ),
+                    )
+                })?;
             // Persist the username (never the password) so account downloads can
             // reuse the cached session later.
             steamcmd::write_account_meta(&workdir, &req.username)
                 .await
                 .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
-            Ok(Json(json!({ "state": "ok" })).into_response())
+            Ok(Json(json!({ "state": "ok", "verified": true })).into_response())
         }
         LoginOutcome::NeedsGuard => Ok((
             StatusCode::CONFLICT,

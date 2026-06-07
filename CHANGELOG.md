@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
-## [Unreleased]
+## [0.2.0]
 
 ### Added
 - Persistent Workshop download and installed-item registry with exact installed

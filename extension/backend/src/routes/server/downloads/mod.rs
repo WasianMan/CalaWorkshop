@@ -108,6 +108,11 @@ mod post {
             Some(crate::settings::PostInstall::Extract) => "extract",
             _ => "none",
         };
+        let requires_account = match preset.map(|p| p.auth).unwrap_or_default() {
+            crate::settings::AuthRequirement::Account => true,
+            crate::settings::AuthRequirement::Anonymous => false,
+            crate::settings::AuthRequirement::Default => !ext.default_anonymous,
+        };
 
         // Resolve the (optional) linked account to its opaque helper label,
         // scoped to the calling user. A user can only download as an account they
@@ -130,6 +135,11 @@ mod post {
                             )
                         })?;
                 Some(link.helper_label)
+            }
+            None if requires_account => {
+                return Err(ApiResponse::error(
+                    "this game requires a linked Steam account; select one before downloading",
+                ));
             }
             None => None,
         };

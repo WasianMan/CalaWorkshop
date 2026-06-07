@@ -92,11 +92,11 @@ impl GamePreset {
             auth: AuthRequirement::Account,
             r#match: vec![
                 MatchRule {
-                    glob: "*.vpk|*.bin".to_string(),
+                    glob: "*.vpk|*_legacy.bin".to_string(),
                     rename: Some("{workshop_id}.vpk".to_string()),
                 },
                 MatchRule {
-                    glob: "*.{jpg,jpeg,png}".to_string(),
+                    glob: "*_legacy.{jpg,jpeg,png}".to_string(),
                     rename: Some("{workshop_id}.{ext}".to_string()),
                 },
             ],

@@ -158,7 +158,16 @@ async fn post_download(
     let workshop_id = req.workshop_id;
     let install_rule = req.install_rule.clone();
     tokio::spawn(async move {
-        run_download(bg_state, id, account, archive, app_id, workshop_id, install_rule).await;
+        run_download(
+            bg_state,
+            id,
+            account,
+            archive,
+            app_id,
+            workshop_id,
+            install_rule,
+        )
+        .await;
     });
 
     let body = DownloadResponse {
@@ -184,7 +193,16 @@ async fn run_download(
         .update_job(&id, |j| j.state = JobState::Downloading)
         .await;
 
-    let result = do_download(&state, id, account, archive, app_id, workshop_id, install_rule).await;
+    let result = do_download(
+        &state,
+        id,
+        account,
+        archive,
+        app_id,
+        workshop_id,
+        install_rule,
+    )
+    .await;
 
     match result {
         Ok((file_name, files, size)) => {
@@ -255,7 +273,8 @@ async fn do_download(
         // Mode 2/3: select + map files per the resolved install rule (empty rule
         // mirrors everything). The transfer is always a zip the extension then
         // pulls + decompresses into the volume.
-        let mapped = steamcmd::apply_install_rule(&content, app_id, workshop_id, &install_rule).await?;
+        let mapped =
+            steamcmd::apply_install_rule(&content, app_id, workshop_id, &install_rule).await?;
         if mapped.is_empty() {
             anyhow::bail!("the install rule matched no files in the downloaded content");
         }

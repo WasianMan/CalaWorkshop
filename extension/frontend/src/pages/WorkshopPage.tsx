@@ -120,6 +120,8 @@ export default function WorkshopPage() {
   }, [server.uuid]);
 
   const preset = useMemo(() => config?.presets[presetIndex], [config, presetIndex]);
+  const auth = preset?.auth ?? 'default';
+  const accountRequired = auth === 'account' || (auth === 'default' && config?.defaultAnonymous === false);
 
   const pollJob = async (jobId: string, path: string) => {
     for (;;) {
@@ -163,6 +165,10 @@ export default function WorkshopPage() {
     const path = installPath.trim();
     if (!path) {
       addToast('Install path is required', 'error');
+      return;
+    }
+    if (accountRequired && !account) {
+      addToast('Select a linked Steam account for this game', 'error');
       return;
     }
 
@@ -259,8 +265,11 @@ export default function WorkshopPage() {
                 {config?.canLinkSteam ? (
                   <Select
                     label='Steam account'
-                    data={[{ value: '', label: 'Anonymous' }, ...accounts.map((a) => ({ value: a, label: a }))]}
-                    value={account ?? ''}
+                    data={[
+                      ...(accountRequired ? [] : [{ value: '', label: 'Anonymous' }]),
+                      ...accounts.map((a) => ({ value: a, label: a })),
+                    ]}
+                    value={accountRequired ? account : account ?? ''}
                     onChange={(v) => setAccount(v ? v : null)}
                     w={240}
                   />

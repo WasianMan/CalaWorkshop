@@ -87,8 +87,8 @@ Response `200`:
 
 ### `GET /files/{id}?token={file_token}`
 Stream the downloaded artifact. Called by **Wings**, not the extension.
-- `Content-Disposition: attachment; filename="<file_name>"` is set so Wings `use_header=true`
-  names the file correctly.
+- `Content-Disposition: attachment; filename="<file_name>"` is set, but the extension
+  also sends `file_name` explicitly to Wings with `use_header=false`.
 - `403` if token mismatch, `404` if job unknown, `409` if job not yet `ready`.
 
 For non-archive installs the helper serves a generated transfer zip containing the

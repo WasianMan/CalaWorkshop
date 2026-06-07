@@ -145,7 +145,7 @@ start normally. If you replace the zip while the panel is already running, resta
 
 ## 6. Configure Calaworkshop
 
-1. Admin -> **Extensions -> Calagopus Workshop**:
+1. Admin -> **Extensions -> CalaWorkshop**:
    - **Helper URL**: `http://calagopus-workshop-helper:8090`
    - **Helper token**: the same `WORKSHOP_HELPER_TOKEN`
    - **Steam Web API key**: optional; SteamCMD handles downloads, the API key only

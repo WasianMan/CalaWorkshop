@@ -118,11 +118,11 @@ VPK/JPG pairs are visible before they are imported into the registry.
 ## Helper internals
 
 - In-memory job registry; artifacts written under `WORKSHOP_DATA_DIR/jobs/<id>/`.
-- **L4D2 install naming:** SteamCMD delivers app-550 workshop items as a single
-  `<ugc-handle>_legacy.bin` (the raw VPK). The dedicated server only loads addons
-  named `<workshop_id>.vpk`, so for app 550 the helper renames the primary artifact
-  to `<workshop_id>.vpk` (and a paired preview image to `<workshop_id>.<ext>`) inside
-  the transfer zip. Other apps keep their original filenames.
+- **Install-rule evaluation:** for non-archive downloads the helper applies the
+  preset's `match` rules to the SteamCMD content folder and writes a transfer zip
+  using the rendered install destinations. The default L4D2 preset matches the
+  common `*_legacy.bin` raw VPK and paired preview image, renaming them to
+  `<workshop_id>.vpk` and `<workshop_id>.<ext>`.
 - Per-account SteamCMD working dirs under `WORKSHOP_DATA_DIR/steam/<label|anonymous>/`
   so cached sessions persist (mount `/data`).
 - `GET /files/<job>?token=` is the only unauthenticated-by-header endpoint (Wings pull

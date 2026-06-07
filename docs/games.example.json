@@ -21,7 +21,7 @@
   {
     "app_id": 107410,
     "name": "Arma 3",
-    "install_path": "mods/{workshop_id}",
+    "install_path": "mods",
     "auth": "account",
     "match": [{ "glob": "**/*", "rename": "{basename}.{ext}" }],
     "post_install": "none"

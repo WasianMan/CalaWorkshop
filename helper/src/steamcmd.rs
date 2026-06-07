@@ -900,7 +900,8 @@ mod tests {
 
     #[test]
     fn template_expands_known_tokens() {
-        let out = render_template("{app_id}/{basename}.{ext}", 550, 7, Path::new("Foo.BIN")).unwrap();
+        let out =
+            render_template("{app_id}/{basename}.{ext}", 550, 7, Path::new("Foo.BIN")).unwrap();
         assert_eq!(out, "550/Foo.bin");
     }
 

@@ -332,7 +332,7 @@ export default function WorkshopPage() {
           {installedLoading ? (
             <Loader size='sm' />
           ) : installed.length === 0 ? (
-            <Text c='dimmed' size='sm'>No Workshop files found in the L4D2 addon scan paths.</Text>
+            <Text c='dimmed' size='sm'>No Workshop content found for this server.</Text>
           ) : (
             <Table>
               <Table.Thead>

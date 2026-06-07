@@ -8,6 +8,17 @@ export type MatchRule = {
   rename?: string;
 };
 
+export type GeneratedFileRule = {
+  path: string;
+  content: string;
+};
+
+export type ScanRule = {
+  path: string;
+  extensions?: string[];
+  glob?: string;
+};
+
 export type GamePreset = {
   appId: number;
   name: string;
@@ -15,6 +26,8 @@ export type GamePreset = {
   // Advanced rule fields (optional; absent = mirror every file, no post-install).
   auth?: AuthRequirement;
   match?: MatchRule[];
+  generatedFiles?: GeneratedFileRule[];
+  scan?: ScanRule[];
   postInstall?: PostInstall;
 };
 

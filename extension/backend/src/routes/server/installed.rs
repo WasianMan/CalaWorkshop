@@ -12,8 +12,6 @@ use shared::{
 };
 use utoipa_axum::router::OpenApiRouter;
 
-const SCAN_PATHS: [&str; 2] = ["left4dead2/addons", "left4dead2/addons/workshop"];
-
 /// Max Steam metadata lookups performed inline per installed-list request.
 const MAX_ENRICH_PER_REQUEST: usize = 24;
 
@@ -57,6 +55,9 @@ async fn list(
     for mut item in tracked {
         for file in &item.files {
             seen.insert((item.install_path.clone(), file.clone()));
+            if let Some((scan_path, name)) = scan_key_for_installed_file(&item.install_path, file) {
+                seen.insert((scan_path, name));
+            }
         }
         if let Some(workshop_id) = item.workshop_id.map(|id| id as u64) {
             if enrich_budget > 0
@@ -104,7 +105,7 @@ async fn list(
         });
     }
 
-    for item in scan_unmanaged(&state, &server, &seen).await? {
+    for item in scan_unmanaged(&state, &server, &ext.game_presets, &seen).await? {
         items.push(item);
     }
 
@@ -131,6 +132,10 @@ async fn import(
     if data.files.is_empty() {
         return Err(ApiResponse::error("no files specified"));
     }
+    let app_id = data
+        .app_id
+        .filter(|id| *id > 0)
+        .ok_or_else(|| ApiResponse::error("app_id is required"))?;
     for file in &data.files {
         crate::validation::validate_file_name(file)?;
     }
@@ -162,7 +167,7 @@ async fn import(
     let item = crate::registry::create_installed(
         state.database.write(),
         server_uuid,
-        data.app_id.unwrap_or(550),
+        app_id,
         data.workshop_id,
         title,
         &install_path,
@@ -224,75 +229,121 @@ async fn preview(
 async fn scan_unmanaged(
     state: &GetState,
     server: &GetServer,
+    presets: &[crate::settings::GamePreset],
     seen: &HashSet<(String, String)>,
 ) -> Result<Vec<WorkshopItem>, anyhow::Error> {
     let node = server.node.fetch_cached(&state.database).await?;
     let api = node.api_client(&state.database).await?;
     let mut out = Vec::new();
 
-    for path in SCAN_PATHS {
-        let entries = match api
-            .get_servers_server_files_list_directory(server.uuid, path)
-            .await
-        {
-            Ok(entries) => entries,
-            Err(_) => continue,
-        };
-        let names = entry_names(serde_json::to_value(entries)?);
-        let mut used_images = HashSet::new();
-
-        for vpk in names.iter().filter(|name| ext_is(name, "vpk")) {
-            if seen.contains(&(path.to_string(), vpk.clone())) {
-                continue;
-            }
-            let stem = file_stem(vpk);
-            let image = names
+    for preset in presets {
+        for scan in &preset.scan {
+            let path = scan.path.as_str();
+            let entries = match api
+                .get_servers_server_files_list_directory(server.uuid, path)
+                .await
+            {
+                Ok(entries) => entries,
+                Err(_) => continue,
+            };
+            let names = entry_names(serde_json::to_value(entries)?);
+            let mut used_images = HashSet::new();
+            let image_exts = ["jpg", "jpeg", "png"];
+            let primary_names: Vec<String> = names
                 .iter()
-                .find(|name| {
-                    file_stem(name) == stem
-                        && (ext_is(name, "jpg") || ext_is(name, "jpeg") || ext_is(name, "png"))
+                .filter(|name| {
+                    scan_matches(name, scan) && !image_exts.iter().any(|ext| ext_is(name, ext))
                 })
-                .cloned();
-            if let Some(image) = &image {
-                used_images.insert(image.clone());
-            }
-            let mut files = vec![vpk.clone()];
-            if let Some(image) = &image {
-                files.push(image.clone());
-            }
-            out.push(WorkshopItem {
-                id: None,
-                title: workshop_id_from_name(vpk).unwrap_or_else(|| vpk.clone()),
-                app_id: 550,
-                workshop_id: workshop_id_from_name(vpk).and_then(|id| id.parse().ok()),
-                install_path: path.to_string(),
-                vpk_file: Some(vpk.clone()),
-                image_file: image,
-                files,
-                source: "unmanaged".to_string(),
-            });
-        }
+                .cloned()
+                .collect();
 
-        for image in names.iter().filter(|name| {
-            (ext_is(name, "jpg") || ext_is(name, "jpeg") || ext_is(name, "png"))
-                && !used_images.contains(*name)
-                && !seen.contains(&(path.to_string(), (*name).clone()))
-        }) {
-            out.push(WorkshopItem {
-                id: None,
-                title: image.clone(),
-                app_id: 550,
-                workshop_id: workshop_id_from_name(image).and_then(|id| id.parse().ok()),
-                install_path: path.to_string(),
-                vpk_file: None,
-                image_file: Some(image.clone()),
-                files: vec![image.clone()],
-                source: "unmanaged".to_string(),
-            });
+            for file in primary_names {
+                if seen.contains(&(path.to_string(), file.clone())) {
+                    continue;
+                }
+                let stem = file_stem(&file);
+                let image = names
+                    .iter()
+                    .find(|name| {
+                        file_stem(name) == stem
+                            && (ext_is(name, "jpg") || ext_is(name, "jpeg") || ext_is(name, "png"))
+                    })
+                    .cloned();
+                if let Some(image) = &image {
+                    used_images.insert(image.clone());
+                }
+                let mut files = vec![file.clone()];
+                if let Some(image) = &image {
+                    files.push(image.clone());
+                }
+                out.push(WorkshopItem {
+                    id: None,
+                    title: workshop_id_from_name(&file).unwrap_or_else(|| file.clone()),
+                    app_id: preset.app_id,
+                    workshop_id: workshop_id_from_name(&file).and_then(|id| id.parse().ok()),
+                    install_path: path.to_string(),
+                    vpk_file: ext_is(&file, "vpk").then_some(file.clone()),
+                    image_file: image,
+                    files,
+                    source: "unmanaged".to_string(),
+                });
+            }
+
+            for image in names.iter().filter(|name| {
+                scan_matches(name, scan)
+                    && (ext_is(name, "jpg") || ext_is(name, "jpeg") || ext_is(name, "png"))
+                    && !used_images.contains(*name)
+                    && !seen.contains(&(path.to_string(), (*name).clone()))
+            }) {
+                out.push(WorkshopItem {
+                    id: None,
+                    title: image.clone(),
+                    app_id: preset.app_id,
+                    workshop_id: workshop_id_from_name(image).and_then(|id| id.parse().ok()),
+                    install_path: path.to_string(),
+                    vpk_file: None,
+                    image_file: Some(image.clone()),
+                    files: vec![image.clone()],
+                    source: "unmanaged".to_string(),
+                });
+            }
         }
     }
 
     Ok(out)
+}
+
+fn scan_key_for_installed_file(install_path: &str, file: &str) -> Option<(String, String)> {
+    let normalized_file = file.replace('\\', "/");
+    let (dir, name) = normalized_file.rsplit_once('/')?;
+    Some((
+        format!("{}/{}", install_path.trim_end_matches('/'), dir),
+        name.to_string(),
+    ))
+}
+
+fn scan_matches(name: &str, scan: &crate::settings::ScanRule) -> bool {
+    let extension_match =
+        scan.extensions.is_empty() || scan.extensions.iter().any(|ext| ext_is(name, ext));
+    let glob_match = scan
+        .glob
+        .as_deref()
+        .map(|pattern| simple_glob_match(pattern, name))
+        .unwrap_or(true);
+    extension_match && glob_match
+}
+
+fn simple_glob_match(pattern: &str, name: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    if let Some(suffix) = pattern.strip_prefix('*') {
+        return name.ends_with(suffix);
+    }
+    if let Some(prefix) = pattern.strip_suffix('*') {
+        return name.starts_with(prefix);
+    }
+    pattern.eq_ignore_ascii_case(name)
 }
 
 fn entry_names(value: serde_json::Value) -> Vec<String> {
@@ -326,9 +377,15 @@ fn file_stem(file: &str) -> &str {
 
 fn workshop_id_from_name(file: &str) -> Option<String> {
     let stem = file_stem(file);
-    stem.chars()
-        .all(|c| c.is_ascii_digit())
-        .then(|| stem.to_string())
+    let id: String = stem
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    (!id.is_empty()).then_some(id)
 }
 
 fn should_refresh_title(title: Option<&str>, workshop_id: u64, vpk_file: Option<&str>) -> bool {

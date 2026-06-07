@@ -31,7 +31,13 @@ const POST_INSTALLS = ['none', 'extract'];
 /** Render a preset's advanced rule fields as the editable JSON document. */
 function advancedJson(p: GamePreset): string {
   return JSON.stringify(
-    { auth: p.auth ?? 'default', match: p.match ?? [], postInstall: p.postInstall ?? 'none' },
+    {
+      auth: p.auth ?? 'default',
+      match: p.match ?? [],
+      generatedFiles: p.generatedFiles ?? [],
+      scan: p.scan ?? [],
+      postInstall: p.postInstall ?? 'none',
+    },
     null,
     2,
   );
@@ -91,7 +97,13 @@ export default function ConfigurationPage() {
     const merged: GamePreset[] = [];
     for (let i = 0; i < presets.length; i++) {
       const label = presets[i].name || `#${i + 1}`;
-      let adv: { auth?: string; match?: unknown; postInstall?: string };
+      let adv: {
+        auth?: string;
+        match?: unknown;
+        generatedFiles?: unknown;
+        scan?: unknown;
+        postInstall?: string;
+      };
       try {
         adv = JSON.parse(advanced[i] || '{}');
       } catch {
@@ -117,10 +129,37 @@ export default function ConfigurationPage() {
         }
         match.push({ glob: m.glob, ...(typeof m.rename === 'string' ? { rename: m.rename } : {}) });
       }
+      const rawGeneratedFiles = Array.isArray(adv.generatedFiles) ? adv.generatedFiles : [];
+      const generatedFiles: { path: string; content: string }[] = [];
+      for (const g of rawGeneratedFiles as Array<{ path?: unknown; content?: unknown }>) {
+        if (typeof g?.path !== 'string' || !g.path.trim() || typeof g.content !== 'string') {
+          addToast(`Preset ${label}: every generatedFiles entry needs "path" and "content" strings`, 'error');
+          return;
+        }
+        generatedFiles.push({ path: g.path, content: g.content });
+      }
+      const rawScan = Array.isArray(adv.scan) ? adv.scan : [];
+      const scan: { path: string; extensions?: string[]; glob?: string }[] = [];
+      for (const s of rawScan as Array<{ path?: unknown; extensions?: unknown; glob?: unknown }>) {
+        if (typeof s?.path !== 'string' || !s.path.trim()) {
+          addToast(`Preset ${label}: every scan entry needs a non-empty "path"`, 'error');
+          return;
+        }
+        const extensions = Array.isArray(s.extensions)
+          ? s.extensions.filter((ext): ext is string => typeof ext === 'string')
+          : [];
+        scan.push({
+          path: s.path,
+          extensions,
+          ...(typeof s.glob === 'string' && s.glob ? { glob: s.glob } : {}),
+        });
+      }
       merged.push({
         ...presets[i],
         auth: auth as GamePreset['auth'],
         match,
+        generatedFiles,
+        scan,
         postInstall: postInstall as GamePreset['postInstall'],
       });
     }
@@ -273,7 +312,7 @@ export default function ConfigurationPage() {
               {openAdvanced[index] ? (
                 <Textarea
                   label='Install rule'
-                  description='auth: default | anonymous | account · match: [{ "glob", "rename"? }] (empty = mirror every file) · postInstall: none | extract. Rename tokens: {workshop_id} {app_id} {ext} {basename}'
+                  description='auth: default | anonymous | account · match: [{ "glob", "rename"? }] · generatedFiles: [{ "path", "content" }] · scan: [{ "path", "extensions"? }] · postInstall: none | extract. Tokens: {workshop_id} {app_id} {ext} {basename} {title_slug}'
                   value={advanced[index] ?? ''}
                   onChange={(v) =>
                     setAdvanced((prev) => prev.map((t, i) => (i === index ? v.currentTarget.value : t)))

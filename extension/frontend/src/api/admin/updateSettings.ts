@@ -26,6 +26,15 @@ export default async (input: UpdateSettingsInput): Promise<void> => {
         glob: m.glob,
         ...(m.rename ? { rename: m.rename } : {}),
       })),
+      generated_files: (p.generatedFiles ?? []).map((g) => ({
+        path: g.path,
+        content: g.content,
+      })),
+      scan: (p.scan ?? []).map((s) => ({
+        path: s.path,
+        extensions: s.extensions ?? [],
+        ...(s.glob ? { glob: s.glob } : {}),
+      })),
       post_install: p.postInstall ?? 'none',
     }));
   }

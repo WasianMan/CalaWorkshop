@@ -99,6 +99,8 @@ struct DownloadRequest {
     account: Option<String>,
     #[serde(default)]
     archive: bool,
+    #[serde(default)]
+    title_slug: Option<String>,
     /// Data-driven file selection/rename rule resolved by the extension from the
     /// game preset. Absent or empty `match` ⇒ mirror every downloaded file.
     #[serde(default)]
@@ -154,6 +156,7 @@ async fn post_download(
     let bg_state = state.clone();
     let account = req.account.clone();
     let archive = req.archive;
+    let title_slug = req.title_slug.clone();
     let app_id = req.app_id;
     let workshop_id = req.workshop_id;
     let install_rule = req.install_rule.clone();
@@ -163,6 +166,7 @@ async fn post_download(
             id,
             account,
             archive,
+            title_slug,
             app_id,
             workshop_id,
             install_rule,
@@ -185,6 +189,7 @@ async fn run_download(
     id: Uuid,
     account: Option<String>,
     archive: bool,
+    title_slug: Option<String>,
     app_id: u64,
     workshop_id: u64,
     install_rule: crate::steamcmd::InstallRule,
@@ -198,6 +203,7 @@ async fn run_download(
         id,
         account,
         archive,
+        title_slug,
         app_id,
         workshop_id,
         install_rule,
@@ -236,6 +242,7 @@ async fn do_download(
     id: Uuid,
     account: Option<String>,
     archive: bool,
+    title_slug: Option<String>,
     app_id: u64,
     workshop_id: u64,
     install_rule: crate::steamcmd::InstallRule,
@@ -273,8 +280,14 @@ async fn do_download(
         // Mode 2/3: select + map files per the resolved install rule (empty rule
         // mirrors everything). The transfer is always a zip the extension then
         // pulls + decompresses into the volume.
-        let mapped =
-            steamcmd::apply_install_rule(&content, app_id, workshop_id, &install_rule).await?;
+        let mapped = steamcmd::apply_install_rule(
+            &content,
+            app_id,
+            workshop_id,
+            title_slug.as_deref(),
+            &install_rule,
+        )
+        .await?;
         if mapped.is_empty() {
             anyhow::bail!("the install rule matched no files in the downloaded content");
         }
@@ -284,7 +297,7 @@ async fn do_download(
         let size = tokio::fs::metadata(&dest).await?.len();
         let files = mapped
             .iter()
-            .map(|(_, install_name)| install_name.clone())
+            .map(|entry| entry.install_name().to_string())
             .collect();
         Ok((file_name, files, size))
     }

@@ -8,14 +8,30 @@
       { "glob": "*.vpk|*_legacy.bin", "rename": "{workshop_id}.vpk" },
       { "glob": "*_legacy.{jpg,jpeg,png}", "rename": "{workshop_id}.{ext}" }
     ],
+    "generated_files": [],
+    "scan": [
+      { "path": "left4dead2/addons", "extensions": ["vpk", "jpg", "jpeg", "png"] },
+      { "path": "left4dead2/addons/workshop", "extensions": ["vpk", "jpg", "jpeg", "png"] }
+    ],
     "post_install": "none"
   },
   {
     "app_id": 4000,
     "name": "Garry's Mod",
-    "install_path": "garrysmod/addons",
+    "install_path": "garrysmod",
     "auth": "anonymous",
-    "match": [],
+    "match": [
+      { "glob": "*.gma|*_legacy.bin", "rename": "addons/{title_slug}_{workshop_id}.gma" }
+    ],
+    "generated_files": [
+      {
+        "path": "lua/autorun/server/cala_workshop_{workshop_id}.lua",
+        "content": "if SERVER then resource.AddWorkshop(\"{workshop_id}\") end\n"
+      }
+    ],
+    "scan": [
+      { "path": "garrysmod/addons", "extensions": ["gma"] }
+    ],
     "post_install": "none"
   },
   {

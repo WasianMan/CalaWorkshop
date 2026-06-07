@@ -49,13 +49,34 @@ pub enum PostInstall {
 /// (e.g. `*.vpk|*.bin`); brace alternation (`*.{jpg,jpeg,png}`) is also
 /// supported. The optional `rename` template maps each matched file to its
 /// install destination; tokens: `{workshop_id}`, `{app_id}`, `{ext}` (lowercased
-/// original extension), `{basename}` (original stem). It may include `/`
-/// subdirectories and is validated as a safe relative path by the helper.
+/// original extension), `{basename}` (original stem), `{title_slug}`. It may
+/// include `/` subdirectories and is validated as a safe relative path by the
+/// helper.
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct MatchRule {
     pub glob: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rename: Option<String>,
+}
+
+/// A file synthesized by the helper and included in the install transfer.
+///
+/// This is intentionally admin-only configuration: generated files can include
+/// game scripts (e.g. Garry's Mod server Lua).
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct GeneratedFileRule {
+    pub path: String,
+    pub content: String,
+}
+
+/// A directory scan used to discover unmanaged Workshop content for a preset.
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct ScanRule {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glob: Option<String>,
 }
 
 /// A game preset: the Steam app id, the default install path, and an optional
@@ -75,6 +96,12 @@ pub struct GamePreset {
     /// File-selection/rename rules. Empty = mirror every downloaded file as-is.
     #[serde(default, rename = "match")]
     pub r#match: Vec<MatchRule>,
+    /// Generated files to bundle into the install artifact.
+    #[serde(default)]
+    pub generated_files: Vec<GeneratedFileRule>,
+    /// Scan rules for unmanaged content discovery.
+    #[serde(default)]
+    pub scan: Vec<ScanRule>,
     /// Post-install behavior once files land in the volume.
     #[serde(default)]
     pub post_install: PostInstall,
@@ -82,10 +109,14 @@ pub struct GamePreset {
 
 impl GamePreset {
     fn defaults() -> Vec<GamePreset> {
+        vec![GamePreset::l4d2_default(), GamePreset::gmod_default()]
+    }
+
+    fn l4d2_default() -> GamePreset {
         // L4D2's special-casing now lives here as data instead of in helper code:
         // SteamCMD delivers app-550 items as `<handle>_legacy.bin` (the raw VPK)
         // and the dedicated server only loads addons named `<workshop_id>.vpk`.
-        vec![GamePreset {
+        GamePreset {
             app_id: 550,
             name: "Left 4 Dead 2".to_string(),
             install_path: "left4dead2/addons".to_string(),
@@ -100,23 +131,61 @@ impl GamePreset {
                     rename: Some("{workshop_id}.{ext}".to_string()),
                 },
             ],
+            generated_files: Vec::new(),
+            scan: vec![
+                ScanRule {
+                    path: "left4dead2/addons".to_string(),
+                    extensions: vec![
+                        "vpk".to_string(),
+                        "jpg".to_string(),
+                        "jpeg".to_string(),
+                        "png".to_string(),
+                    ],
+                    glob: None,
+                },
+                ScanRule {
+                    path: "left4dead2/addons/workshop".to_string(),
+                    extensions: vec![
+                        "vpk".to_string(),
+                        "jpg".to_string(),
+                        "jpeg".to_string(),
+                        "png".to_string(),
+                    ],
+                    glob: None,
+                },
+            ],
             post_install: PostInstall::None,
-        }]
+        }
     }
 
-    fn l4d2_default() -> GamePreset {
-        GamePreset::defaults()
-            .into_iter()
-            .next()
-            .expect("L4D2 default preset exists")
+    fn gmod_default() -> GamePreset {
+        GamePreset {
+            app_id: 4000,
+            name: "Garry's Mod".to_string(),
+            install_path: "garrysmod".to_string(),
+            auth: AuthRequirement::Anonymous,
+            r#match: vec![MatchRule {
+                glob: "*.gma|*_legacy.bin".to_string(),
+                rename: Some("addons/{title_slug}_{workshop_id}.gma".to_string()),
+            }],
+            generated_files: vec![GeneratedFileRule {
+                path: "lua/autorun/server/cala_workshop_{workshop_id}.lua".to_string(),
+                content: "if SERVER then resource.AddWorkshop(\"{workshop_id}\") end\n".to_string(),
+            }],
+            scan: vec![ScanRule {
+                path: "garrysmod/addons".to_string(),
+                extensions: vec!["gma".to_string()],
+                glob: None,
+            }],
+            post_install: PostInstall::None,
+        }
     }
 
     fn hydrate_legacy_defaults(&mut self) {
-        if self.app_id != 550 {
-            return;
-        }
-
-        let default = GamePreset::l4d2_default();
+        let default = match self.app_id {
+            550 => GamePreset::l4d2_default(),
+            _ => return,
+        };
 
         if self.auth == AuthRequirement::Default {
             self.auth = default.auth;
@@ -126,6 +195,17 @@ impl GamePreset {
         }
         if self.post_install == PostInstall::None {
             self.post_install = default.post_install;
+        }
+        if self.scan.is_empty() {
+            self.scan = default.scan;
+        }
+    }
+
+    fn seed_missing_defaults(presets: &mut Vec<GamePreset>) {
+        for default in GamePreset::defaults() {
+            if !presets.iter().any(|preset| preset.app_id == default.app_id) {
+                presets.push(default);
+            }
         }
     }
 }
@@ -236,6 +316,7 @@ impl SettingsDeserializeExt for ExtensionSettingsDataDeserializer {
         for preset in &mut game_presets {
             preset.hydrate_legacy_defaults();
         }
+        GamePreset::seed_missing_defaults(&mut game_presets);
 
         Ok(Box::new(ExtensionSettingsData {
             helper_url,

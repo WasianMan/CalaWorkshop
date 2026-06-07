@@ -1,8 +1,16 @@
 {
-  "auth": "account",
+  "auth": "anonymous",
   "match": [
-    { "glob": "*.vpk|*_legacy.bin", "rename": "{workshop_id}.vpk" },
-    { "glob": "*_legacy.{jpg,jpeg,png}", "rename": "{workshop_id}.{ext}" }
+    { "glob": "*.gma|*_legacy.bin", "rename": "addons/{title_slug}_{workshop_id}.gma" }
+  ],
+  "generatedFiles": [
+    {
+      "path": "lua/autorun/server/cala_workshop_{workshop_id}.lua",
+      "content": "if SERVER then resource.AddWorkshop(\"{workshop_id}\") end\n"
+    }
+  ],
+  "scan": [
+    { "path": "garrysmod/addons", "extensions": ["gma"] }
   ],
   "postInstall": "none"
 }

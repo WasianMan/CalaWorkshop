@@ -11,11 +11,17 @@ All notable changes to this project are documented here. Format loosely follows
   rules. The helper selects + renames downloaded files by these rules instead of
   a hardcoded `app_id == 550` branch, so new games are added entirely through
   settings. Empty rules mirror every downloaded file; `rename` supports
-  `{workshop_id}`/`{app_id}`/`{ext}`/`{basename}` tokens and safe subpaths.
+  `{workshop_id}`/`{app_id}`/`{ext}`/`{basename}`/`{title_slug}` tokens and safe subpaths.
   Glob matching uses `globset`. An admin "Advanced (JSON)" editor authors the
   rules per preset. See [`docs/games.example.json`](./docs/games.example.json)
   for full preset examples and [`docs/advanced-rule.example.json`](./docs/advanced-rule.example.json)
   for a copy-pasteable Advanced-box example.
+- **Garry's Mod default preset.** App 4000 is seeded with anonymous SteamCMD
+  downloads, `*_legacy.bin`/`*.gma` mapping to
+  `addons/{title_slug}_{workshop_id}.gma`, and a generated per-item
+  `resource.AddWorkshop` Lua file for client delivery.
+- Presets can now define generated files and installed-content scan rules. The
+  installed-content page no longer scans hardcoded L4D2 paths for every server.
 - **Best-effort game auto-detection.** The Workshop tab preselects a preset by
   scoring the server's egg variables / startup command against configured app
   ids (high/medium/low confidence); the user can always override.
@@ -25,8 +31,8 @@ All notable changes to this project are documented here. Format loosely follows
   moving release tags or `latest`.
 
 ### Changed
-- The install request no longer takes a client `archive` flag; the transfer zip is
-  always decompressed (driven by persisted job state). `post_install: extract`
+- The install step no longer trusts a client-supplied decompression/post-install
+  flag; the transfer zip is always decompressed, and `post_install: extract`
   additionally unpacks any nested archive among the installed files.
 - Existing saved L4D2 presets are hydrated with the new account requirement and
   install rules on settings load, so upgrades keep producing loadable

@@ -10,6 +10,7 @@ use std::time::Duration;
 use anyhow::{anyhow, bail, Context, Result};
 use globset::{Glob, GlobSetBuilder};
 use serde::Deserialize;
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
 use crate::config::Config;
@@ -19,6 +20,8 @@ use crate::config::Config;
 const MAX_RULES: usize = 64;
 const MAX_MATCHED_FILES: usize = 4096;
 const MAX_DEST_LEN: usize = 512;
+const MAX_GENERATED_FILES: usize = 64;
+const MAX_GENERATED_CONTENT_LEN: usize = 64 * 1024;
 
 /// Hard ceilings so a stuck steamcmd (e.g. a blocked socket retrying, or a Steam
 /// Guard prompt it can never satisfy non-interactively) can't hang a request or
@@ -426,12 +429,41 @@ pub struct MatchRule {
     pub rename: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct GeneratedFileRule {
+    pub path: String,
+    pub content: String,
+}
+
 /// The resolved install rule for a download. An empty `matchers` list means
 /// "mirror every downloaded file under its original relative path".
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct InstallRule {
     #[serde(default, rename = "match")]
     pub matchers: Vec<MatchRule>,
+    #[serde(default)]
+    pub generated_files: Vec<GeneratedFileRule>,
+}
+
+#[derive(Debug, Clone)]
+pub enum InstallEntry {
+    Source {
+        rel: PathBuf,
+        install_name: String,
+    },
+    Generated {
+        content: Vec<u8>,
+        install_name: String,
+    },
+}
+
+impl InstallEntry {
+    pub fn install_name(&self) -> &str {
+        match self {
+            InstallEntry::Source { install_name, .. } => install_name,
+            InstallEntry::Generated { install_name, .. } => install_name,
+        }
+    }
 }
 
 /// Decide which downloaded files to install and under what destination path.
@@ -445,12 +477,19 @@ pub async fn apply_install_rule(
     content_dir: &Path,
     app_id: u64,
     workshop_id: u64,
+    title_slug: Option<&str>,
     rule: &InstallRule,
-) -> Result<Vec<(PathBuf, String)>> {
+) -> Result<Vec<InstallEntry>> {
     if rule.matchers.len() > MAX_RULES {
         bail!(
             "install rule has too many match entries ({} > {MAX_RULES})",
             rule.matchers.len()
+        );
+    }
+    if rule.generated_files.len() > MAX_GENERATED_FILES {
+        bail!(
+            "install rule has too many generated_files entries ({} > {MAX_GENERATED_FILES})",
+            rule.generated_files.len()
         );
     }
 
@@ -464,12 +503,16 @@ pub async fn apply_install_rule(
 
     // Mode 3: mirror everything under its original relative name.
     if rule.matchers.is_empty() {
-        let mut out = Vec::with_capacity(rels.len());
+        let mut out = Vec::with_capacity(rels.len() + rule.generated_files.len());
         for rel in &rels {
             let dest = rel_to_dest(rel);
             validate_install_dest(&dest)?;
-            out.push((rel.clone(), dest));
+            out.push(InstallEntry::Source {
+                rel: rel.clone(),
+                install_name: dest,
+            });
         }
+        append_generated_files(&mut out, app_id, workshop_id, title_slug, rule)?;
         return finalize_selection(out);
     }
 
@@ -501,17 +544,64 @@ pub async fn apply_install_rule(
             continue; // unmatched files are simply not installed
         };
         let dest = match &rule.matchers[rule_idx].rename {
-            Some(tpl) => render_template(tpl, app_id, workshop_id, rel)?,
+            Some(tpl) => render_template(tpl, app_id, workshop_id, title_slug, rel)?,
             None => rel_str,
         };
         validate_install_dest(&dest)?;
-        out.push((rel.clone(), dest));
+        warn_if_format_looks_unexpected(content_dir, rel, &dest).await;
+        out.push(InstallEntry::Source {
+            rel: rel.clone(),
+            install_name: dest,
+        });
     }
+    append_generated_files(&mut out, app_id, workshop_id, title_slug, rule)?;
     finalize_selection(out)
 }
 
+fn append_generated_files(
+    out: &mut Vec<InstallEntry>,
+    app_id: u64,
+    workshop_id: u64,
+    title_slug: Option<&str>,
+    rule: &InstallRule,
+) -> Result<()> {
+    for generated in &rule.generated_files {
+        if generated.content.len() > MAX_GENERATED_CONTENT_LEN {
+            bail!(
+                "generated file '{}' is too large ({} > {MAX_GENERATED_CONTENT_LEN})",
+                generated.path,
+                generated.content.len()
+            );
+        }
+        let install_name = render_context_template(
+            &generated.path,
+            app_id,
+            workshop_id,
+            title_slug,
+            None,
+            true,
+            true,
+        )?;
+        validate_install_dest(&install_name)?;
+        let content = render_context_template(
+            &generated.content,
+            app_id,
+            workshop_id,
+            title_slug,
+            None,
+            false,
+            false,
+        )?;
+        out.push(InstallEntry::Generated {
+            content: content.into_bytes(),
+            install_name,
+        });
+    }
+    Ok(())
+}
+
 /// Enforce the matched-file ceiling and reject duplicate destinations.
-fn finalize_selection(out: Vec<(PathBuf, String)>) -> Result<Vec<(PathBuf, String)>> {
+fn finalize_selection(out: Vec<InstallEntry>) -> Result<Vec<InstallEntry>> {
     if out.len() > MAX_MATCHED_FILES {
         bail!(
             "install rule matched too many files ({} > {MAX_MATCHED_FILES})",
@@ -519,19 +609,26 @@ fn finalize_selection(out: Vec<(PathBuf, String)>) -> Result<Vec<(PathBuf, Strin
         );
     }
     let mut seen = HashSet::new();
-    for (_, dest) in &out {
-        if !seen.insert(dest.as_str()) {
-            bail!("install rule produces duplicate destination '{dest}'");
+    for entry in &out {
+        let dest = entry.install_name();
+        if !seen.insert(dest) {
+            bail!("install rule produces duplicate destination '{}'", dest);
         }
     }
     Ok(out)
 }
 
 /// Render a `rename` template. Supported tokens: `{workshop_id}`, `{app_id}`,
-/// `{ext}` (lowercased original extension), `{basename}` (original stem). Any
-/// leftover `{`/`}` means an unknown token, which is rejected rather than written
-/// literally to disk.
-fn render_template(tpl: &str, app_id: u64, workshop_id: u64, rel: &Path) -> Result<String> {
+/// `{ext}` (lowercased original extension), `{basename}` (original stem), and
+/// `{title_slug}`. Any leftover `{`/`}` means an unknown token, which is rejected
+/// rather than written literally to disk.
+fn render_template(
+    tpl: &str,
+    app_id: u64,
+    workshop_id: u64,
+    title_slug: Option<&str>,
+    rel: &Path,
+) -> Result<String> {
     let ext = rel
         .extension()
         .and_then(|e| e.to_str())
@@ -543,16 +640,39 @@ fn render_template(tpl: &str, app_id: u64, workshop_id: u64, rel: &Path) -> Resu
         .unwrap_or("")
         .to_string();
 
+    render_context_template(
+        tpl,
+        app_id,
+        workshop_id,
+        title_slug,
+        Some((&ext, &basename)),
+        true,
+        true,
+    )
+}
+
+fn render_context_template(
+    tpl: &str,
+    app_id: u64,
+    workshop_id: u64,
+    title_slug: Option<&str>,
+    file_context: Option<(&str, &str)>,
+    enforce_path_len: bool,
+    reject_unknown_tokens: bool,
+) -> Result<String> {
+    let (ext, basename) = file_context.unwrap_or(("", ""));
+    let title_slug = title_slug.unwrap_or(if basename.is_empty() { "" } else { basename });
     let out = tpl
         .replace("{workshop_id}", &workshop_id.to_string())
         .replace("{app_id}", &app_id.to_string())
-        .replace("{ext}", &ext)
-        .replace("{basename}", &basename);
+        .replace("{ext}", ext)
+        .replace("{basename}", basename)
+        .replace("{title_slug}", title_slug);
 
-    if out.len() > MAX_DEST_LEN {
+    if enforce_path_len && out.len() > MAX_DEST_LEN {
         bail!("rendered install path '{out}' is too long");
     }
-    if out.contains('{') || out.contains('}') {
+    if reject_unknown_tokens && (out.contains('{') || out.contains('}')) {
         bail!("rename template '{tpl}' contains an unknown token");
     }
     Ok(out)
@@ -603,11 +723,51 @@ async fn regular_files(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(out)
 }
 
+async fn warn_if_format_looks_unexpected(content_dir: &Path, rel: &Path, dest: &str) {
+    let src_ext = rel
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if src_ext != "bin" {
+        return;
+    }
+    let dest_ext = Path::new(dest)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if dest_ext != "gma" && dest_ext != "vpk" {
+        return;
+    }
+    let mut file = match tokio::fs::File::open(content_dir.join(rel)).await {
+        Ok(file) => file,
+        Err(_) => return,
+    };
+    let mut header = [0u8; 8];
+    let n = match file.read(&mut header).await {
+        Ok(n) => n,
+        Err(_) => return,
+    };
+    let looks_ok = match dest_ext.as_str() {
+        "gma" => n >= 4 && &header[..4] == b"GMAD",
+        "vpk" => n >= 4 && header[..4] == [0x34, 0x12, 0xaa, 0x55],
+        _ => true,
+    };
+    if !looks_ok {
+        tracing::warn!(
+            source = %rel.display(),
+            destination = %dest,
+            "legacy payload did not match the expected file signature; installing anyway"
+        );
+    }
+}
+
 /// Zip the selected source files into `dest`, each stored under its mapped
 /// install name (`(relative_source, install_name)` pairs).
 pub async fn zip_selected_files(
     src_root: &Path,
-    files: &[(PathBuf, String)],
+    files: &[InstallEntry],
     dest: &Path,
 ) -> Result<()> {
     let src_root = src_root.to_path_buf();
@@ -618,11 +778,7 @@ pub async fn zip_selected_files(
         .context("zip task panicked")?
 }
 
-fn zip_selected_files_blocking(
-    src_root: &Path,
-    files: &[(PathBuf, String)],
-    dest: &Path,
-) -> Result<()> {
+fn zip_selected_files_blocking(src_root: &Path, files: &[InstallEntry], dest: &Path) -> Result<()> {
     use std::io::{Read, Write};
     use zip::write::SimpleFileOptions;
 
@@ -632,14 +788,21 @@ fn zip_selected_files_blocking(
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     let mut buf = Vec::new();
 
-    for (rel, install_name) in files {
-        let src = src_root.join(rel);
-        let name = install_name.replace('\\', "/");
+    for entry in files {
+        let name = entry.install_name().replace('\\', "/");
         zip.start_file(name, options)?;
-        let mut f = std::fs::File::open(&src)?;
         buf.clear();
-        f.read_to_end(&mut buf)?;
-        zip.write_all(&buf)?;
+        match entry {
+            InstallEntry::Source { rel, .. } => {
+                let src = src_root.join(rel);
+                let mut f = std::fs::File::open(&src)?;
+                f.read_to_end(&mut buf)?;
+                zip.write_all(&buf)?;
+            }
+            InstallEntry::Generated { content, .. } => {
+                zip.write_all(content)?;
+            }
+        }
     }
 
     zip.finish()?;
@@ -800,9 +963,11 @@ mod tests {
     }
 
     /// Destinations only, sorted, for order-independent assertions.
-    fn dests(mut v: Vec<(PathBuf, String)>) -> Vec<String> {
-        v.sort_by(|a, b| a.1.cmp(&b.1));
-        v.into_iter().map(|(_, d)| d).collect()
+    fn dests(mut v: Vec<InstallEntry>) -> Vec<String> {
+        v.sort_by(|a, b| a.install_name().cmp(b.install_name()));
+        v.into_iter()
+            .map(|entry| entry.install_name().to_string())
+            .collect()
     }
 
     fn l4d2_rule() -> InstallRule {
@@ -817,6 +982,7 @@ mod tests {
                     rename: Some("{workshop_id}.{ext}".into()),
                 },
             ],
+            generated_files: Vec::new(),
         }
     }
 
@@ -827,7 +993,7 @@ mod tests {
             "9372098838249685383_legacy.jpg",
         ])
         .await;
-        let mapped = apply_install_rule(&dir, 550, 2888803926, &l4d2_rule())
+        let mapped = apply_install_rule(&dir, 550, 2888803926, None, &l4d2_rule())
             .await
             .unwrap();
         assert_eq!(
@@ -840,7 +1006,7 @@ mod tests {
     #[tokio::test]
     async fn empty_rule_mirrors_all_files_preserving_structure() {
         let dir = make_content(&["a.txt", "sub/b.dat"]).await;
-        let mapped = apply_install_rule(&dir, 4000, 1, &InstallRule::default())
+        let mapped = apply_install_rule(&dir, 4000, 1, None, &InstallRule::default())
             .await
             .unwrap();
         assert_eq!(
@@ -858,8 +1024,9 @@ mod tests {
                 glob: "*.pak".into(),
                 rename: None,
             }],
+            generated_files: Vec::new(),
         };
-        let mapped = apply_install_rule(&dir, 1, 1, &rule).await.unwrap();
+        let mapped = apply_install_rule(&dir, 1, 1, None, &rule).await.unwrap();
         assert_eq!(dests(mapped), vec!["keep.pak".to_string()]);
         tokio::fs::remove_dir_all(&dir).await.ok();
     }
@@ -872,8 +1039,9 @@ mod tests {
                 glob: "*.pak".into(),
                 rename: Some("Mods/{basename}.{ext}".into()),
             }],
+            generated_files: Vec::new(),
         };
-        let mapped = apply_install_rule(&dir, 1, 1, &rule).await.unwrap();
+        let mapped = apply_install_rule(&dir, 1, 1, None, &rule).await.unwrap();
         assert_eq!(dests(mapped), vec!["Mods/mod.pak".to_string()]);
         tokio::fs::remove_dir_all(&dir).await.ok();
     }
@@ -886,23 +1054,95 @@ mod tests {
                 glob: "*.vpk".into(),
                 rename: Some("{workshop_id}.vpk".into()),
             }],
+            generated_files: Vec::new(),
         };
-        let err = apply_install_rule(&dir, 550, 99, &rule).await.unwrap_err();
+        let err = apply_install_rule(&dir, 550, 99, None, &rule)
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("duplicate destination"));
+        tokio::fs::remove_dir_all(&dir).await.ok();
+    }
+
+    #[tokio::test]
+    async fn gmod_rule_renames_legacy_bin_with_title_slug_and_generates_lua() {
+        let dir = make_content(&["315621401145590065_legacy.bin"]).await;
+        let rule = InstallRule {
+            matchers: vec![MatchRule {
+                glob: "*.gma|*_legacy.bin".into(),
+                rename: Some("addons/{title_slug}_{workshop_id}.gma".into()),
+            }],
+            generated_files: vec![GeneratedFileRule {
+                path: "lua/autorun/server/cala_workshop_{workshop_id}.lua".into(),
+                content: "if SERVER then resource.AddWorkshop(\"{workshop_id}\") end\n".into(),
+            }],
+        };
+        let mapped = apply_install_rule(&dir, 4000, 105764633, Some("gm_ocean_evening"), &rule)
+            .await
+            .unwrap();
+        assert_eq!(
+            dests(mapped),
+            vec![
+                "addons/gm_ocean_evening_105764633.gma".to_string(),
+                "lua/autorun/server/cala_workshop_105764633.lua".to_string(),
+            ]
+        );
+        tokio::fs::remove_dir_all(&dir).await.ok();
+    }
+
+    #[tokio::test]
+    async fn generated_file_duplicate_destination_is_rejected() {
+        let dir = make_content(&["a.gma"]).await;
+        let rule = InstallRule {
+            matchers: vec![MatchRule {
+                glob: "*.gma".into(),
+                rename: Some("addons/a.gma".into()),
+            }],
+            generated_files: vec![GeneratedFileRule {
+                path: "addons/a.gma".into(),
+                content: "x".into(),
+            }],
+        };
+        let err = apply_install_rule(&dir, 4000, 1, None, &rule)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("duplicate destination"));
+        tokio::fs::remove_dir_all(&dir).await.ok();
+    }
+
+    #[tokio::test]
+    async fn generated_content_allows_lua_braces() {
+        let dir = make_content(&["a.gma"]).await;
+        let rule = InstallRule {
+            matchers: Vec::new(),
+            generated_files: vec![GeneratedFileRule {
+                path: "lua/autorun/server/cala_workshop_{workshop_id}.lua".into(),
+                content: "local ids = { \"{workshop_id}\" }\n".into(),
+            }],
+        };
+        let mapped = apply_install_rule(&dir, 4000, 42, None, &rule)
+            .await
+            .unwrap();
+        assert!(dests(mapped).contains(&"lua/autorun/server/cala_workshop_42.lua".to_string()));
         tokio::fs::remove_dir_all(&dir).await.ok();
     }
 
     #[test]
     fn template_rejects_unknown_token() {
-        let err = render_template("{nope}.vpk", 1, 2, Path::new("a.bin")).unwrap_err();
+        let err = render_template("{nope}.vpk", 1, 2, None, Path::new("a.bin")).unwrap_err();
         assert!(err.to_string().contains("unknown token"));
     }
 
     #[test]
     fn template_expands_known_tokens() {
-        let out =
-            render_template("{app_id}/{basename}.{ext}", 550, 7, Path::new("Foo.BIN")).unwrap();
-        assert_eq!(out, "550/Foo.bin");
+        let out = render_template(
+            "{app_id}/{title_slug}/{basename}.{ext}",
+            550,
+            7,
+            Some("title"),
+            Path::new("Foo.BIN"),
+        )
+        .unwrap();
+        assert_eq!(out, "550/title/Foo.bin");
     }
 
     #[test]

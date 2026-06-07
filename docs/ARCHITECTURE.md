@@ -17,9 +17,10 @@ independent image published to GHCR.
 ```
 1. User pastes a Workshop URL/ID in the Workshop tab and clicks install.
 2. Frontend → extension:  POST /api/client/servers/{server}/calaworkshop/downloads
-3. Extension → helper:    POST /download {app_id, workshop_id, account?, archive, install_rule}
-                          (the extension resolves install_rule + auth + post_install
-                           from the game preset for this app_id)
+3. Extension → helper:    POST /download {app_id, workshop_id, account?, archive,
+                          title_slug?, install_rule}
+                          (the extension resolves install_rule + generated files
+                           + auth + post_install from the game preset for this app_id)
                           helper runs SteamCMD, returns a job id + file token
 4. Frontend polls:        GET  …/downloads/{job}        (extension merges persisted DB state with helper /jobs)
 5. When the helper job is "ready":
@@ -37,13 +38,22 @@ independent image published to GHCR.
 
 Per-game behavior is **data**, not code. Each preset in the extension settings
 carries `app_id`, `name`, `install_path`, an `auth` requirement, a `post_install`
-action, and a `match` list of `{ glob, rename? }` rules. At download time the
-extension resolves the preset for the requested `app_id` and sends the `match`
-rules to the helper, which selects + renames files accordingly (see
-[CONTRACT.md](../CONTRACT.md)). The L4D2 `<workshop_id>.vpk` rename is now just the
-default preset's rule, so new games need no helper code. An app id with no preset
-falls back to "mirror every downloaded file". `post_install` is persisted on the
-download row so the install step is driven by server-side state, not a client flag.
+action, `match` rules, optional `generated_files`, and `scan` rules. At download
+time the extension resolves the preset for the requested `app_id` and sends the
+install rule to the helper, which selects, renames, and generates files accordingly
+(see [CONTRACT.md](../CONTRACT.md)). The L4D2 `<workshop_id>.vpk` rename is now
+just the default preset's rule, so new games need no helper code. An app id with
+no preset falls back to "mirror every downloaded file". `post_install` is persisted
+on the download row so the install step is driven by server-side state, not a
+client flag.
+
+Garry's Mod is configured the same way: the preset root is `garrysmod`, the
+downloaded legacy payload is written to `addons/{title_slug}_{workshop_id}.gma`,
+and a generated `lua/autorun/server/cala_workshop_{workshop_id}.lua` file calls
+`resource.AddWorkshop("<workshop_id>")` so clients fetch the Workshop content.
+Generated files can run game server code, so preset editing is intentionally gated
+behind the admin `calaworkshop.configure` permission.
+
 See [`games.example.json`](./games.example.json) for full preset examples and
 [`advanced-rule.example.json`](./advanced-rule.example.json) for the exact
 Advanced-box JSON shape.
@@ -113,18 +123,22 @@ server, app id, optional Workshop id, install path, VPK, preview image, source
 (`managed`, `imported`, or scan-only `unmanaged`), and exact files used for
 uninstall.
 
-The L4D2 default preset installs to `left4dead2/addons`. The installed-content
-API also scans `left4dead2/addons` and `left4dead2/addons/workshop` so existing
-VPK/JPG pairs are visible before they are imported into the registry.
+Installed-content scanning is also preset-driven. L4D2 scans
+`left4dead2/addons` and `left4dead2/addons/workshop`; GMod scans
+`garrysmod/addons` for `.gma` files. Managed installs are de-duplicated against
+scan results even when the preset root differs from the scanned subdirectory
+(for example `garrysmod` plus `addons/foo.gma`).
 
 ## Helper internals
 
 - In-memory job registry; artifacts written under `WORKSHOP_DATA_DIR/jobs/<id>/`.
 - **Install-rule evaluation:** for non-archive downloads the helper applies the
   preset's `match` rules to the SteamCMD content folder and writes a transfer zip
-  using the rendered install destinations. The default L4D2 preset matches the
-  common `*_legacy.bin` raw VPK and paired preview image, renaming them to
-  `<workshop_id>.vpk` and `<workshop_id>.<ext>`.
+  using the rendered install destinations plus any generated files. The default
+  L4D2 preset matches the common `*_legacy.bin` raw VPK and paired preview image,
+  renaming them to `<workshop_id>.vpk` and `<workshop_id>.<ext>`. The default GMod
+  preset maps `*_legacy.bin`/`*.gma` to `addons/{title_slug}_{workshop_id}.gma`
+  and adds the per-item client-download Lua file.
 - Per-account SteamCMD working dirs under `WORKSHOP_DATA_DIR/steam/<label|anonymous>/`
   so cached sessions persist (mount `/data`).
 - `GET /files/<job>?token=` is the only unauthenticated-by-header endpoint (Wings pull

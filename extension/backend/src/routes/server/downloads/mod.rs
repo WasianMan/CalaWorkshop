@@ -103,6 +103,9 @@ mod post {
         let preset = ext.game_presets.iter().find(|p| p.app_id == data.app_id);
         let install_rule = crate::helper::InstallRulePayload {
             matchers: preset.map(|p| p.r#match.clone()).unwrap_or_default(),
+            generated_files: preset
+                .map(|p| p.generated_files.clone())
+                .unwrap_or_default(),
         };
         let post_install = match preset.map(|p| p.post_install) {
             Some(crate::settings::PostInstall::Extract) => "extract",
@@ -154,6 +157,11 @@ mod post {
             title: None,
             preview_url: None,
         });
+        let title_slug = metadata
+            .title
+            .as_deref()
+            .map(slugify_title)
+            .filter(|slug| !slug.is_empty());
         let job = crate::registry::create_download(
             state.database.write(),
             server,
@@ -174,6 +182,7 @@ mod post {
                 workshop_id: data.workshop_id,
                 account,
                 archive: data.archive,
+                title_slug,
                 install_rule,
             })
             .await
@@ -206,6 +215,24 @@ mod post {
             state: resp.state,
         })
         .ok()
+    }
+
+    fn slugify_title(title: &str) -> String {
+        let mut out = String::new();
+        let mut last_was_sep = false;
+        for ch in title.chars().flat_map(char::to_lowercase) {
+            if ch.is_ascii_alphanumeric() {
+                out.push(ch);
+                last_was_sep = false;
+            } else if !last_was_sep && !out.is_empty() {
+                out.push('_');
+                last_was_sep = true;
+            }
+            if out.len() >= 80 {
+                break;
+            }
+        }
+        out.trim_matches('_').to_string()
     }
 }
 

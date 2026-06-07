@@ -12,16 +12,20 @@ pub struct DownloadRequest {
     pub workshop_id: u64,
     pub account: Option<String>,
     pub archive: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title_slug: Option<String>,
     /// File selection/rename rule resolved from the game preset. The helper
     /// reads `match`; an empty list means "mirror every downloaded file".
     pub install_rule: InstallRulePayload,
 }
 
-/// Wire shape the helper expects: `{ "match": [{ "glob", "rename"? }] }`.
+/// Wire shape the helper expects: match rules plus optional generated files.
 #[derive(Serialize, Default)]
 pub struct InstallRulePayload {
     #[serde(rename = "match")]
     pub matchers: Vec<crate::settings::MatchRule>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generated_files: Vec<crate::settings::GeneratedFileRule>,
 }
 
 #[derive(Deserialize)]

@@ -1,3 +1,1 @@
-DROP TABLE IF EXISTS dev_wasian_calaworkshop_installed_items;
-DROP TABLE IF EXISTS dev_wasian_calaworkshop_download_jobs;
 DROP TABLE IF EXISTS dev_wasian_calaworkshop_steam_links;

@@ -130,6 +130,9 @@ it up.
 - **Extension:** drop the new `.c7s.zip` into `/app/extensions` (replacing the old)
   and restart `web`. The panel recompiles with the new version; migrations run
   automatically.
+- Update the helper image and `.c7s.zip` together for v0.2+. New helpers return
+  selected install files as transfer zips, and old extensions do not understand
+  that contract.
 
 ## Reverting
 

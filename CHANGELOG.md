@@ -18,6 +18,8 @@ All notable changes to this project are documented here. Format loosely follows
 - Steam account selection is hidden unless the user has `calaworkshop.configure`.
 - Steam Web API key copy now clarifies that SteamCMD handles downloads and the
   key is only for metadata.
+- Helper and extension releases should be deployed together because the helper
+  now returns selected install artifacts as transfer zips with a `files` list.
 
 ## [0.1.2]
 

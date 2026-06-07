@@ -58,10 +58,10 @@ fn download_from_row(row: sqlx::postgres::PgRow) -> DownloadJob {
         preview_url: row.get("preview_url"),
         install_path: row.get("install_path"),
         file_name: row.get("file_name"),
-        files: parse_files(row.get("files")),
+        files: parse_files(row.get("files_json")),
         error: row.get("error"),
-        created_at: row.get("created_at"),
-        updated_at: row.get("updated_at"),
+        created_at: row.get("created_at_str"),
+        updated_at: row.get("updated_at_str"),
     }
 }
 
@@ -75,10 +75,10 @@ fn installed_from_row(row: sqlx::postgres::PgRow) -> InstalledItem {
         install_path: row.get("install_path"),
         vpk_file: row.get("vpk_file"),
         image_file: row.get("image_file"),
-        files: parse_files(row.get("files")),
+        files: parse_files(row.get("files_json")),
         source: row.get("source"),
-        created_at: row.get("created_at"),
-        updated_at: row.get("updated_at"),
+        created_at: row.get("created_at_str"),
+        updated_at: row.get("updated_at_str"),
     }
 }
 
@@ -94,7 +94,7 @@ pub async fn create_download(
         INSERT INTO dev_wasian_calaworkshop_download_jobs
             (server_uuid, app_id, workshop_id, state, title, preview_url)
         VALUES ($1, $2, $3, 'queued', $4, $5)
-        RETURNING *, files::text AS files, created_at::text AS created_at, updated_at::text AS updated_at
+        RETURNING *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
         "#,
     )
     .bind(server_uuid)
@@ -113,7 +113,7 @@ pub async fn recent_downloads(
 ) -> Result<Vec<DownloadJob>, sqlx::Error> {
     let rows = sqlx::query(
         r#"
-        SELECT *, files::text AS files, created_at::text AS created_at, updated_at::text AS updated_at
+        SELECT *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
         FROM dev_wasian_calaworkshop_download_jobs
         WHERE server_uuid = $1
         ORDER BY
@@ -135,7 +135,7 @@ pub async fn get_download(
 ) -> Result<Option<DownloadJob>, sqlx::Error> {
     let row = sqlx::query(
         r#"
-        SELECT *, files::text AS files, created_at::text AS created_at, updated_at::text AS updated_at
+        SELECT *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
         FROM dev_wasian_calaworkshop_download_jobs
         WHERE server_uuid = $1 AND id = $2
         "#,
@@ -232,7 +232,7 @@ pub async fn create_installed(
         INSERT INTO dev_wasian_calaworkshop_installed_items
             (server_uuid, app_id, workshop_id, title, install_path, vpk_file, image_file, files, source)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
-        RETURNING *, files::text AS files, created_at::text AS created_at, updated_at::text AS updated_at
+        RETURNING *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
         "#,
     )
     .bind(server_uuid)
@@ -255,7 +255,7 @@ pub async fn list_installed(
 ) -> Result<Vec<InstalledItem>, sqlx::Error> {
     let rows = sqlx::query(
         r#"
-        SELECT *, files::text AS files, created_at::text AS created_at, updated_at::text AS updated_at
+        SELECT *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
         FROM dev_wasian_calaworkshop_installed_items
         WHERE server_uuid = $1
         ORDER BY updated_at DESC
@@ -274,7 +274,7 @@ pub async fn get_installed(
 ) -> Result<Option<InstalledItem>, sqlx::Error> {
     let row = sqlx::query(
         r#"
-        SELECT *, files::text AS files, created_at::text AS created_at, updated_at::text AS updated_at
+        SELECT *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
         FROM dev_wasian_calaworkshop_installed_items
         WHERE server_uuid = $1 AND id = $2
         "#,

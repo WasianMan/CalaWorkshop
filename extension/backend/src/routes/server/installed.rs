@@ -36,7 +36,7 @@ async fn list(
     permissions.has_server_permission("workshop.read")?;
 
     let mut items = Vec::new();
-    let tracked = crate::registry::list_installed(&state.database, server_uuid).await?;
+    let tracked = crate::registry::list_installed(state.database.read(), server_uuid).await?;
     let mut seen = HashSet::new();
 
     for item in tracked {
@@ -93,7 +93,7 @@ async fn import(
     }
 
     let item = crate::registry::create_installed(
-        &state.database,
+        state.database.write(),
         server_uuid,
         data.app_id.unwrap_or(550),
         data.workshop_id,
@@ -114,7 +114,7 @@ async fn remove(
     Path((server_uuid, installed_id)): Path<(uuid::Uuid, uuid::Uuid)>,
 ) -> ApiResponseResult {
     permissions.has_server_permission("workshop.remove")?;
-    let item = crate::registry::get_installed(&state.database, server_uuid, installed_id)
+    let item = crate::registry::get_installed(state.database.read(), server_uuid, installed_id)
         .await?
         .ok_or_else(|| ApiResponse::error("unknown installed item"))?;
 
@@ -130,7 +130,7 @@ async fn remove(
         )
         .await?;
 
-    crate::registry::delete_installed(&state.database, server_uuid, installed_id).await?;
+    crate::registry::delete_installed(state.database.write(), server_uuid, installed_id).await?;
     ApiResponse::new_serialized(serde_json::json!({ "deleted": result.deleted })).ok()
 }
 
@@ -140,7 +140,7 @@ async fn preview(
     Path((server_uuid, installed_id)): Path<(uuid::Uuid, uuid::Uuid)>,
 ) -> ApiResponseResult {
     permissions.has_server_permission("workshop.read")?;
-    let item = crate::registry::get_installed(&state.database, server_uuid, installed_id)
+    let item = crate::registry::get_installed(state.database.read(), server_uuid, installed_id)
         .await?
         .ok_or_else(|| ApiResponse::error("unknown installed item"))?;
     if item.image_file.is_none() {

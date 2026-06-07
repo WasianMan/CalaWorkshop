@@ -45,14 +45,14 @@ mod post {
         permissions: GetPermissionManager,
         server: GetServer,
         activity_logger: GetServerActivityLogger,
-        Path((_server, download)): Path<(uuid::Uuid, uuid::Uuid)>,
+        Path((server_uuid, download)): Path<(uuid::Uuid, uuid::Uuid)>,
         shared::Payload(data): shared::Payload<Payload>,
     ) -> ApiResponseResult {
         permissions.has_server_permission("workshop.install")?;
 
         let install_path = crate::validation::normalize_server_path(&data.install_path)?;
 
-        let db_job = crate::registry::get_download(&state.database, _server, download)
+        let db_job = crate::registry::get_download(state.database.read(), server_uuid, download)
             .await?
             .ok_or_else(|| ApiResponse::error("unknown download"))?;
         let helper_job_id = db_job
@@ -129,9 +129,9 @@ mod post {
         };
 
         let installed = crate::registry::create_installed(
-            &state.database,
+            state.database.write(),
             server.uuid,
-            job.app_id as u32,
+            job.app_id,
             Some(job.workshop_id),
             db_job.title.clone(),
             &install_path,
@@ -139,7 +139,8 @@ mod post {
             "managed",
         )
         .await?;
-        crate::registry::mark_download_installed(&state.database, download, &install_path).await?;
+        crate::registry::mark_download_installed(state.database.write(), download, &install_path)
+            .await?;
 
         activity_logger
             .log(

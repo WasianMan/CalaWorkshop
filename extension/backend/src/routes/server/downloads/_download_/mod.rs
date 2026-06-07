@@ -39,11 +39,11 @@ mod get {
     pub async fn route(
         state: GetState,
         permissions: GetPermissionManager,
-        Path((_server, download)): Path<(uuid::Uuid, uuid::Uuid)>,
+        Path((server_uuid, download)): Path<(uuid::Uuid, uuid::Uuid)>,
     ) -> ApiResponseResult {
         permissions.has_server_permission("workshop.read")?;
 
-        let mut job = crate::registry::get_download(&state.database, _server, download)
+        let mut job = crate::registry::get_download(state.database.read(), server_uuid, download)
             .await?
             .ok_or_else(|| ApiResponse::error("unknown download"))?;
 
@@ -57,7 +57,7 @@ mod get {
                 if matches!(job.state.as_str(), "queued" | "downloading" | "ready") {
                     if let Ok(helper_job) = helper.get_job(helper_job_id).await {
                         crate::registry::update_download_from_helper(
-                            &state.database,
+                            state.database.write(),
                             job.id,
                             &helper_job.state,
                             helper_job.file_name.clone(),

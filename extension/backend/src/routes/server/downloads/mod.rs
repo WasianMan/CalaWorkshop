@@ -31,7 +31,7 @@ mod get {
         Path(server): Path<uuid::Uuid>,
     ) -> ApiResponseResult {
         permissions.has_server_permission("workshop.read")?;
-        let jobs = crate::registry::recent_downloads(&state.database, server).await?;
+        let jobs = crate::registry::recent_downloads(state.database.read(), server).await?;
         ApiResponse::new_serialized(Response { jobs }).ok()
     }
 }
@@ -101,7 +101,7 @@ mod post {
             preview_url: None,
         });
         let job = crate::registry::create_download(
-            &state.database,
+            state.database.write(),
             server,
             data.app_id,
             data.workshop_id,
@@ -137,7 +137,7 @@ mod post {
             Ok(resp) => resp,
             Err(err) => {
                 crate::registry::update_download_helper(
-                    &state.database,
+                    state.database.write(),
                     job.id,
                     None,
                     "failed",
@@ -149,7 +149,7 @@ mod post {
         };
 
         crate::registry::update_download_helper(
-            &state.database,
+            state.database.write(),
             job.id,
             Some(resp.id),
             &resp.state,

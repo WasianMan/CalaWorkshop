@@ -16,6 +16,7 @@ mod registry;
 mod routes;
 mod settings;
 mod steam;
+mod steam_links;
 mod validation;
 
 #[derive(Default)]

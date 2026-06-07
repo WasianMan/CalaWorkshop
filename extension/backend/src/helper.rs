@@ -82,6 +82,7 @@ impl<'a> HelperClient<'a> {
             .client
             .post(format!("{}/download", self.base_url))
             .bearer_auth(&self.token)
+            .timeout(REQUEST_TIMEOUT)
             .json(body)
             .send()
             .await?
@@ -95,6 +96,7 @@ impl<'a> HelperClient<'a> {
             .client
             .get(format!("{}/jobs/{}", self.base_url, job_id))
             .bearer_auth(&self.token)
+            .timeout(REQUEST_TIMEOUT)
             .send()
             .await?
             .error_for_status()?
@@ -107,6 +109,7 @@ impl<'a> HelperClient<'a> {
             .client
             .get(format!("{}/health", self.base_url))
             .bearer_auth(&self.token)
+            .timeout(REQUEST_TIMEOUT)
             .send()
             .await?
             .error_for_status()?
@@ -119,6 +122,8 @@ impl<'a> HelperClient<'a> {
             .client
             .get(format!("{}/diagnostics/steamcmd", self.base_url))
             .bearer_auth(&self.token)
+            // The helper runs steamcmd for this check; allow longer than usual.
+            .timeout(STEAMCMD_TIMEOUT)
             .send()
             .await?;
         let status = resp.status();
@@ -134,6 +139,7 @@ impl<'a> HelperClient<'a> {
             .client
             .get(format!("{}/accounts", self.base_url))
             .bearer_auth(&self.token)
+            .timeout(REQUEST_TIMEOUT)
             .send()
             .await?
             .error_for_status()?
@@ -151,6 +157,8 @@ impl<'a> HelperClient<'a> {
             .client
             .post(format!("{}/accounts/login", self.base_url))
             .bearer_auth(&self.token)
+            // The helper runs steamcmd to log in; allow longer than usual.
+            .timeout(STEAMCMD_TIMEOUT)
             .json(body)
             .send()
             .await?;
@@ -167,12 +175,24 @@ impl<'a> HelperClient<'a> {
                 urlencoding_encode(label)
             ))
             .bearer_auth(&self.token)
+            .timeout(REQUEST_TIMEOUT)
             .send()
             .await?
             .error_for_status()?;
         Ok(())
     }
 }
+
+/// Per-request timeout for fast helper endpoints. The panel shares a single
+/// `reqwest::Client` with no global timeout, so every helper call sets its own —
+/// a hung helper must never be able to pin a request (and, through the settings
+/// read guard, the whole panel). See `docs/ARCHITECTURE.md`.
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Longer timeout for endpoints where the helper shells out to steamcmd
+/// (login, connectivity diagnostics). Slightly longer than the helper's own
+/// steamcmd timeout so the helper returns its structured error first.
+const STEAMCMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(140);
 
 /// Minimal percent-encoding for query/path values (avoids pulling another dep;
 /// only used for tokens and account labels which are short ascii-ish strings).

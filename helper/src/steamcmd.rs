@@ -4,11 +4,44 @@
 //! pipeline can be unit-reasoned in isolation.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 use tokio::process::Command;
 
 use crate::config::Config;
+
+/// Hard ceilings so a stuck steamcmd (e.g. a blocked socket retrying, or a Steam
+/// Guard prompt it can never satisfy non-interactively) can't hang a request or
+/// a worker forever. On elapse the child is dropped and killed (`kill_on_drop`).
+const CONNECTIVITY_TIMEOUT: Duration = Duration::from_secs(90);
+const LOGIN_TIMEOUT: Duration = Duration::from_secs(120);
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(3600);
+
+/// Global steamcmd flags that keep it from ever blocking on an interactive
+/// prompt: never ask for a password at the TTY, and bail on the first failed
+/// command instead of dropping into the interactive shell.
+fn apply_noninteractive_flags(cmd: &mut Command) {
+    cmd.arg("+@ShutdownOnFailedCommand")
+        .arg("1")
+        .arg("+@NoPromptForPassword")
+        .arg("1");
+}
+
+/// Run a prepared steamcmd command with a timeout, returning its captured output.
+async fn run_steamcmd(
+    mut cmd: Command,
+    timeout: Duration,
+    bin: &str,
+) -> Result<std::process::Output> {
+    match tokio::time::timeout(timeout, cmd.output()).await {
+        Ok(result) => result.with_context(|| format!("spawning steamcmd ({bin})")),
+        Err(_) => bail!(
+            "steamcmd timed out after {}s (no response — check the SteamCMD connectivity diagnostic)",
+            timeout.as_secs()
+        ),
+    }
+}
 
 /// Outcome of a steamcmd login attempt (used by `POST /accounts/login`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,8 +81,9 @@ pub async fn download_item(
 
     let login_user = username.unwrap_or("anonymous");
 
-    // steamcmd +force_install_dir <dir> +login <user> +workshop_download_item <app> <id> +quit
+    // steamcmd +@... +force_install_dir <dir> +login <user> +workshop_download_item <app> <id> +quit
     let mut cmd = Command::new(&config.steamcmd_bin);
+    apply_noninteractive_flags(&mut cmd);
     cmd.arg("+force_install_dir")
         .arg(workdir)
         .arg("+login")
@@ -61,10 +95,7 @@ pub async fn download_item(
         .current_dir(workdir)
         .kill_on_drop(true);
 
-    let output = cmd
-        .output()
-        .await
-        .with_context(|| format!("spawning steamcmd ({})", config.steamcmd_bin))?;
+    let output = run_steamcmd(cmd, DOWNLOAD_TIMEOUT, &config.steamcmd_bin).await?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -112,6 +143,7 @@ pub async fn login(
         .with_context(|| format!("creating steam workdir {}", workdir.display()))?;
 
     let mut cmd = Command::new(&config.steamcmd_bin);
+    apply_noninteractive_flags(&mut cmd);
     cmd.arg("+force_install_dir")
         .arg(workdir)
         .arg("+login")
@@ -123,10 +155,7 @@ pub async fn login(
     }
     cmd.arg("+quit").current_dir(workdir).kill_on_drop(true);
 
-    let output = cmd
-        .output()
-        .await
-        .with_context(|| format!("spawning steamcmd ({})", config.steamcmd_bin))?;
+    let output = run_steamcmd(cmd, LOGIN_TIMEOUT, &config.steamcmd_bin).await?;
 
     let combined = format!(
         "{}{}",
@@ -171,17 +200,16 @@ pub async fn connectivity_check(config: &Config) -> Result<String> {
         .await
         .with_context(|| format!("creating steam workdir {}", workdir.display()))?;
 
-    let output = Command::new(&config.steamcmd_bin)
-        .arg("+force_install_dir")
+    let mut cmd = Command::new(&config.steamcmd_bin);
+    apply_noninteractive_flags(&mut cmd);
+    cmd.arg("+force_install_dir")
         .arg(&workdir)
         .arg("+login")
         .arg("anonymous")
         .arg("+quit")
         .current_dir(&workdir)
-        .kill_on_drop(true)
-        .output()
-        .await
-        .with_context(|| format!("spawning steamcmd ({})", config.steamcmd_bin))?;
+        .kill_on_drop(true);
+    let output = run_steamcmd(cmd, CONNECTIVITY_TIMEOUT, &config.steamcmd_bin).await?;
 
     let combined = format!(
         "{}{}",

@@ -41,7 +41,7 @@ mod post {
     use serde::{Deserialize, Serialize};
     use shared::{
         GetState,
-        models::user::GetPermissionManager,
+        models::user::{GetPermissionManager, GetUser},
         response::{ApiResponse, ApiResponseResult},
     };
     use utoipa::ToSchema;
@@ -76,6 +76,7 @@ mod post {
     pub async fn route(
         state: GetState,
         permissions: GetPermissionManager,
+        user: GetUser,
         Path(server): Path<uuid::Uuid>,
         shared::Payload(data): shared::Payload<Payload>,
     ) -> ApiResponseResult {
@@ -87,8 +88,39 @@ mod post {
             ));
         }
 
-        let settings = state.settings.get().await?;
-        let ext: &crate::settings::ExtensionSettingsData = settings.find_extension_settings()?;
+        // Snapshot settings into an owned value and drop the read guard before any
+        // network I/O — holding it across helper/Steam calls can stall the panel.
+        let ext = {
+            let settings = state.settings.get().await?;
+            settings
+                .find_extension_settings::<crate::settings::ExtensionSettingsData>()?
+                .clone()
+        };
+
+        // Resolve the (optional) linked account to its opaque helper label,
+        // scoped to the calling user. A user can only download as an account they
+        // personally linked; anonymous otherwise.
+        let account = match data
+            .account
+            .as_deref()
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+        {
+            Some(label) => {
+                permissions.has_user_permission("calaworkshop.link-steam")?;
+                crate::validation::validate_account_label(label)?;
+                let link =
+                    crate::steam_links::get_by_label(state.database.read(), user.uuid, label)
+                        .await?
+                        .ok_or_else(|| {
+                            ApiResponse::error(
+                                "you have not linked a Steam account with that label",
+                            )
+                        })?;
+                Some(link.helper_label)
+            }
+            None => None,
+        };
 
         let metadata = crate::steam::get_published_file_details(
             &state.client,
@@ -112,18 +144,6 @@ mod post {
         let helper =
             crate::helper::HelperClient::new(&state.client, &ext.helper_url, &ext.helper_token)
                 .ok_or_else(|| ApiResponse::error("workshop helper is not configured"))?;
-
-        // Anonymous by default unless the caller picked a linked account. Linked
-        // helper sessions are currently global, so account-backed downloads stay
-        // admin-only until the steam_links ownership table is enforced.
-        let account = data.account.and_then(|a| {
-            let label = a.trim().to_string();
-            (!label.is_empty()).then_some(label)
-        });
-        if let Some(label) = &account {
-            permissions.has_admin_permission("calaworkshop.configure")?;
-            crate::validation::validate_account_label(label)?;
-        }
 
         let resp = match helper
             .start_download(&crate::helper::DownloadRequest {

@@ -18,6 +18,7 @@ mod get {
         helper_configured: bool,
         steam_search_available: bool,
         can_configure: bool,
+        can_link_steam: bool,
     }
 
     /// Returns the game presets and feature flags the Workshop tab needs to render.
@@ -40,6 +41,9 @@ mod get {
             steam_search_available: !ext.steam_api_key.trim().is_empty(),
             can_configure: permissions
                 .has_admin_permission("calaworkshop.configure")
+                .is_ok(),
+            can_link_steam: permissions
+                .has_user_permission("calaworkshop.link-steam")
                 .is_ok(),
         })
         .ok()

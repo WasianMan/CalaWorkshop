@@ -59,10 +59,13 @@ gated UI with `ServerCan`.
   is optional and is used only for names, previews, and search metadata; SteamCMD
   handles downloads. The two secrets are encrypted at rest via
   `database.encrypt`/`decrypt` (+ base32). Presets are stored as a single serde blob.
-- **Per-user data** (which panel user owns which Steam label) is *not* expressible in
-  global settings, so a migration table (`dev_wasian_calaworkshop_steam_links`) is
-  scaffolded for the planned per-user ownership scoping. v1 treats Steam linking as a
-  thin proxy suitable for a single-admin panel.
+- **Per-user data** (which panel user owns which Steam label) lives in the
+  `dev_wasian_calaworkshop_steam_links` table. Each row ties a `user_uuid` + a
+  user-facing `label` to an opaque `helper_label`. The helper keys its cached
+  SteamCMD session by the opaque label, so the friendly label a user types is
+  never used to address a session directly — that is what stops one user (admin
+  or otherwise) from listing, downloading-as, or deleting another user's linked
+  Steam account. Linking requires the `calaworkshop.link-steam` user permission.
 - The panel's `state.storage` is **not** used — that's panel-level storage (avatars,
   reports), not server volumes. Server files always go through Wings.
 
@@ -97,6 +100,28 @@ VPK/JPG pairs are visible before they are imported into the registry.
   the internal compose network.
 - All mutating extension routes are permission-checked before any side effects, and
   install paths are validated (no `..`, no leading `/`) in addition to Wings' own checks.
+
+## Concurrency: never hold the settings guard across I/O
+
+`state.settings.get()` returns a **read guard** over a `tokio::sync::RwLock`, and the
+panel reloads the settings cache (taking the *write* lock) when it expires. If a
+request held that read guard across a slow network call (a hung helper, a slow Steam
+API), the next cache reload would block on the write lock while holding the single
+reload permit — and then *every* `settings.get()` in the panel would queue behind it,
+freezing the whole panel. So every route here **snapshots the settings into an owned
+value and drops the guard before any helper/Steam call**:
+
+```rust
+let ext = {
+    let settings = state.settings.get().await?;
+    settings.find_extension_settings::<ExtensionSettingsData>()?.clone()
+}; // guard dropped here, before any network I/O
+```
+
+Belt and braces, all helper calls and the Steam metadata call also carry explicit
+per-request timeouts (the panel's shared `reqwest::Client` has none), and the
+installed-list route caps how many Steam metadata lookups it performs inline so a slow
+Steam API can't make listing crawl.
 
 ## Multi-node (future)
 

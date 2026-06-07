@@ -24,20 +24,20 @@ pub async fn get_published_file_details(
     api_key: &str,
     workshop_id: u64,
 ) -> Option<WorkshopMetadata> {
-    if api_key.trim().is_empty() {
-        return None;
-    }
-
     let mut form = vec![
         ("itemcount".to_string(), "1".to_string()),
         ("publishedfileids[0]".to_string(), workshop_id.to_string()),
-        ("key".to_string(), api_key.to_string()),
     ];
+    if !api_key.trim().is_empty() {
+        form.push(("key".to_string(), api_key.to_string()));
+    }
     form.push(("format".to_string(), "json".to_string()));
 
     let details = client
         .post("https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/")
         .form(&form)
+        // Bounded so a slow/unreachable Steam endpoint can never stall a request.
+        .timeout(std::time::Duration::from_secs(10))
         .send()
         .await
         .ok()?

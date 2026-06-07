@@ -14,6 +14,9 @@ use utoipa_axum::router::OpenApiRouter;
 
 const SCAN_PATHS: [&str; 2] = ["left4dead2/addons", "left4dead2/addons/workshop"];
 
+/// Max Steam metadata lookups performed inline per installed-list request.
+const MAX_ENRICH_PER_REQUEST: usize = 24;
+
 #[derive(Serialize)]
 struct WorkshopItem {
     id: Option<uuid::Uuid>,
@@ -39,9 +42,49 @@ async fn list(
     let tracked = crate::registry::list_installed(state.database.read(), server_uuid).await?;
     let mut seen = HashSet::new();
 
-    for item in tracked {
+    // Snapshot settings and drop the read guard before any Steam call below.
+    let ext = {
+        let settings = state.settings.get().await?;
+        settings
+            .find_extension_settings::<crate::settings::ExtensionSettingsData>()?
+            .clone()
+    };
+    // Cap how many numeric/unnamed items we enrich per request so a slow Steam
+    // API can never make listing crawl. Resolved titles persist, so repeated
+    // loads converge; unresolved ones (private/deleted) retry a few at a time.
+    let mut enrich_budget = MAX_ENRICH_PER_REQUEST;
+
+    for mut item in tracked {
         for file in &item.files {
             seen.insert((item.install_path.clone(), file.clone()));
+        }
+        if let Some(workshop_id) = item.workshop_id.map(|id| id as u64) {
+            if enrich_budget > 0
+                && should_refresh_title(
+                    item.title.as_deref(),
+                    workshop_id,
+                    item.vpk_file.as_deref(),
+                )
+            {
+                enrich_budget -= 1;
+                if let Some(metadata) = crate::steam::get_published_file_details(
+                    &state.client,
+                    ext.steam_api_key.as_str(),
+                    workshop_id,
+                )
+                .await
+                {
+                    if let Some(title) = metadata.title {
+                        crate::registry::update_installed_title(
+                            state.database.write(),
+                            item.id,
+                            &title,
+                        )
+                        .await?;
+                        item.title = Some(title);
+                    }
+                }
+            }
         }
         items.push(WorkshopItem {
             id: Some(item.id),
@@ -92,12 +135,36 @@ async fn import(
         crate::validation::validate_file_name(file)?;
     }
 
+    let mut title = data.title;
+    if let Some(workshop_id) = data.workshop_id {
+        if should_refresh_title(title.as_deref(), workshop_id, None) {
+            // Snapshot settings and drop the read guard before the Steam call.
+            let ext = {
+                let settings = state.settings.get().await?;
+                settings
+                    .find_extension_settings::<crate::settings::ExtensionSettingsData>()?
+                    .clone()
+            };
+            if let Some(metadata) = crate::steam::get_published_file_details(
+                &state.client,
+                ext.steam_api_key.as_str(),
+                workshop_id,
+            )
+            .await
+            {
+                if metadata.title.is_some() {
+                    title = metadata.title;
+                }
+            }
+        }
+    }
+
     let item = crate::registry::create_installed(
         state.database.write(),
         server_uuid,
         data.app_id.unwrap_or(550),
         data.workshop_id,
-        data.title,
+        title,
         &install_path,
         data.files,
         "imported",
@@ -262,6 +329,20 @@ fn workshop_id_from_name(file: &str) -> Option<String> {
     stem.chars()
         .all(|c| c.is_ascii_digit())
         .then(|| stem.to_string())
+}
+
+fn should_refresh_title(title: Option<&str>, workshop_id: u64, vpk_file: Option<&str>) -> bool {
+    let Some(title) = title.map(str::trim).filter(|title| !title.is_empty()) else {
+        return true;
+    };
+    let id = workshop_id.to_string();
+    if title == id {
+        return true;
+    }
+    if let Some(vpk_file) = vpk_file {
+        return title == vpk_file || title == file_stem(vpk_file);
+    }
+    false
 }
 
 pub fn router(state: &State) -> OpenApiRouter<State> {

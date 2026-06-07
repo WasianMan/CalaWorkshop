@@ -138,8 +138,13 @@ pub mod diagnostics {
     ))]
     pub async fn route(state: GetState, permissions: GetPermissionManager) -> ApiResponseResult {
         permissions.has_admin_permission("calaworkshop.configure")?;
-        let settings = state.settings.get().await?;
-        let ext: &crate::settings::ExtensionSettingsData = settings.find_extension_settings()?;
+        // Snapshot settings and drop the read guard before the helper calls.
+        let ext = {
+            let settings = state.settings.get().await?;
+            settings
+                .find_extension_settings::<crate::settings::ExtensionSettingsData>()?
+                .clone()
+        };
         let Some(helper) =
             crate::helper::HelperClient::new(&state.client, &ext.helper_url, &ext.helper_token)
         else {

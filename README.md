@@ -101,12 +101,13 @@ calaworkshop/
 
 Working: per-server Workshop tab; paste URL/ID → download → Wings-pull install;
 persistent job tracking; managed/imported/unmanaged installed-content list;
-precise uninstall; admin config with encrypted secrets and diagnostics; Steam
-account linking (login + Guard) proxied to the helper.
+precise uninstall; admin config with encrypted secrets and diagnostics; **per-user**
+Steam account linking (login + Guard) where each user only sees and downloads with
+their own linked accounts.
 
 Planned: search GUI (`IPublishedFileService/QueryFiles`) + collection expansion;
-per-user ownership scoping of Steam links; update/reinstall actions; full local
-preview streaming once a Wings file-contents binding is available.
+update/reinstall actions; full local preview streaming once a Wings file-contents
+binding is available.
 
 ## License
 

@@ -48,9 +48,13 @@ mod get {
             .ok_or_else(|| ApiResponse::error("unknown download"))?;
 
         if let Some(helper_job_id) = job.helper_job_id {
-            let settings = state.settings.get().await?;
-            let ext: &crate::settings::ExtensionSettingsData =
-                settings.find_extension_settings()?;
+            // Snapshot settings and drop the read guard before the helper call.
+            let ext = {
+                let settings = state.settings.get().await?;
+                settings
+                    .find_extension_settings::<crate::settings::ExtensionSettingsData>()?
+                    .clone()
+            };
             if let Some(helper) =
                 crate::helper::HelperClient::new(&state.client, &ext.helper_url, &ext.helper_token)
             {

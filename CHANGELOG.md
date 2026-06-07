@@ -3,6 +3,34 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
+## [Unreleased]
+
+### Added
+- **Per-user Steam account linking.** Linked accounts are now owned by the panel
+  user who created them and addressed on the helper through an opaque per-link
+  label, so no user (admin included) can see, download with, or delete another
+  user's linked Steam account. Linking uses the `calaworkshop.link-steam` user
+  permission (no longer admin-only). New `20260608000000_steam_links` migration.
+
+### Fixed
+- **Panel no longer locks up during Steam/helper operations.** Routes were holding
+  the settings read guard (a `tokio::sync::RwLock` guard) across helper/Steam
+  network calls; when the settings cache reload needed the write lock, the whole
+  panel could stall. Every route now snapshots settings and drops the guard before
+  any network I/O.
+- Added explicit per-request timeouts to all helper calls and the Steam metadata
+  call (the panel's shared HTTP client has none), so a hung helper can't pin a
+  request — or, via the settings guard, the panel.
+- Hardened the helper's SteamCMD invocations with `+@ShutdownOnFailedCommand 1
+  +@NoPromptForPassword 1` and hard timeouts, so a blocked socket (newer-Docker
+  seccomp) or an unsatisfiable Steam Guard prompt fails fast instead of hanging.
+- Capped inline Steam metadata lookups on the installed-content list so a slow
+  Steam API can't make the list crawl.
+
+### Docs
+- Documented the settings-guard concurrency rule, per-user Steam linking, and the
+  Docker 29.4.2 / CVE-2026-31431 seccomp fix for SteamCMD connectivity.
+
 ## [0.2.0]
 
 ### Added

@@ -301,6 +301,21 @@ pub async fn delete_installed(
     Ok(())
 }
 
+pub async fn update_installed_title(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    id: uuid::Uuid,
+    title: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE dev_wasian_calaworkshop_installed_items SET title = $2, updated_at = now() WHERE id = $1",
+    )
+    .bind(id)
+    .bind(title)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 fn ext_is(file: &str, ext: &str) -> bool {
     file.rsplit('.')
         .next()

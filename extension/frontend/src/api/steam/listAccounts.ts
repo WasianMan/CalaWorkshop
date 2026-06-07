@@ -2,6 +2,7 @@ import { axiosInstance } from '@/api/axios.ts';
 
 export type SteamAccount = {
   label: string;
+  username?: string | null;
   valid: boolean;
 };
 

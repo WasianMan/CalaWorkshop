@@ -88,7 +88,7 @@ export default function WorkshopPage() {
           setPresetIndex(0);
           setInstallPath(cfg.presets[0].installPath);
         }
-        if (cfg.canConfigure) {
+        if (cfg.canLinkSteam) {
           listAccounts()
             .then((list) => setAccounts(list.map((a) => a.label)))
             .catch(() => setAccounts([]));
@@ -166,7 +166,7 @@ export default function WorkshopPage() {
       const { jobId, state } = await startDownload(server.uuid, {
         appId: preset.appId,
         workshopId,
-        account: config?.canConfigure ? account : null,
+        account: config?.canLinkSteam ? account : null,
         archive,
       });
       setJobs((prev) => [{ id: jobId, workshopId, state }, ...prev]);
@@ -237,7 +237,7 @@ export default function WorkshopPage() {
                 onChange={(e) => setWorkshopInput(e.currentTarget.value)}
               />
               <Group align='end'>
-                {config?.canConfigure ? (
+                {config?.canLinkSteam ? (
                   <Select
                     label='Steam account'
                     data={[{ value: '', label: 'Anonymous' }, ...accounts.map((a) => ({ value: a, label: a }))]}

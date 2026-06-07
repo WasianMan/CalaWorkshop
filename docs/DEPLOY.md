@@ -121,7 +121,11 @@ it up.
    permissions to yourself/subusers, and `calaworkshop.link-steam` (user) for linking.
 3. On a server, open the **Workshop** tab, paste a Workshop URL/ID, and install.
 4. For Left 4 Dead 2, link a Steam account on the **Steam Link** account page first
-   (anonymous downloads won't work for app 550).
+   (anonymous downloads won't work for app 550). **Steam accounts are linked
+   per-user**: each panel user links their own account and only ever sees and
+   downloads with their own — accounts are never shared between users, even admins.
+   A fresh login asks for a Steam Guard code: submit username + password, then
+   re-submit with the code from your email/authenticator when prompted.
 
 ## Updating
 
@@ -139,6 +143,37 @@ it up.
 Change `:heavy-aio` back to `:aio` and redeploy. The stock image ignores the
 `/app/...` build mounts and starts cleanly on your existing data. You can leave the
 helper service and mounts in place for when you switch back.
+
+## SteamCMD connectivity on newer Docker (seccomp)
+
+If the admin **Diagnostics → Run checks** shows the helper reachable but the
+**SteamCMD** check failing with `CreateBoundSocket: failed to create socket … (38)`
+or `No Connection`, this is **not** a networking problem. Docker 29.4.2 tightened its
+default seccomp profile (mitigating CVE-2026-31431) and now blocks the `AF_ALG`
+socket family (38) and the 32-bit `socketcall` syscall that SteamCMD uses.
+
+Fix it on the **helper** container only. Preferred (narrow) option — a custom seccomp
+profile based on Docker's default that re-allows `AF_ALG` + 32-bit `socketcall`,
+referenced from the helper service:
+
+```yaml
+calagopus-workshop-helper:
+  security_opt:
+    - seccomp=/etc/docker/seccomp/default-plus-afalg.json
+```
+
+Blunt fallback (removes the mitigation for just this container):
+
+```yaml
+calagopus-workshop-helper:
+  security_opt:
+    - seccomp=unconfined
+```
+
+Do **not** set this on the whole stack, and do not switch to host networking. After
+recreating the helper, re-run the diagnostics check — it should pass before linking or
+downloading. (The helper now also fails this check *fast* instead of hanging, and the
+panel no longer freezes while it runs — see the changelog.)
 
 ## Troubleshooting
 

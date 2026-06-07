@@ -95,8 +95,10 @@ export default function SteamLinkPage() {
         <Alert color='blue' title='How Steam linking works'>
           Anonymous downloads work for some games, but many (including Left 4 Dead 2) require an
           account that owns the game. Linking logs the helper into your Steam account once and
-          caches the session — your password is not stored long-term. A fresh login may ask for a
-          Steam Guard code.
+          caches the session — your password is never stored. Accounts you link here are tied to
+          your user and are not visible to other panel users. A fresh login asks for a Steam Guard
+          code: submit your username and password first, then enter the code from your email or
+          authenticator app when prompted.
         </Alert>
 
         <Card withBorder radius='md' padding='lg'>

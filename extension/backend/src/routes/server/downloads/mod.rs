@@ -97,6 +97,18 @@ mod post {
                 .clone()
         };
 
+        // Resolve the game preset for this app id (if any). It drives the install
+        // rule sent to the helper and the post-install behavior we persist. An
+        // unconfigured app id falls back to "mirror every file" / no post-install.
+        let preset = ext.game_presets.iter().find(|p| p.app_id == data.app_id);
+        let install_rule = crate::helper::InstallRulePayload {
+            matchers: preset.map(|p| p.r#match.clone()).unwrap_or_default(),
+        };
+        let post_install = match preset.map(|p| p.post_install) {
+            Some(crate::settings::PostInstall::Extract) => "extract",
+            _ => "none",
+        };
+
         // Resolve the (optional) linked account to its opaque helper label,
         // scoped to the calling user. A user can only download as an account they
         // personally linked; anonymous otherwise.
@@ -138,6 +150,7 @@ mod post {
             data.app_id,
             data.workshop_id,
             metadata,
+            post_install,
         )
         .await?;
 
@@ -151,6 +164,7 @@ mod post {
                 workshop_id: data.workshop_id,
                 account,
                 archive: data.archive,
+                install_rule,
             })
             .await
         {

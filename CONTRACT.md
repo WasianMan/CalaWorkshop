@@ -35,9 +35,28 @@ Request:
   "app_id": 550,
   "workshop_id": 123456789,
   "account": null,            // null = anonymous; else a linked account label
-  "archive": false            // true = zip the item folder; false = select install artifacts (VPK + matching image)
+  "archive": false,           // true = zip the item folder verbatim (mode 1)
+  "install_rule": {           // resolved by the extension from the game preset
+    "match": [                // empty/omitted = mirror every downloaded file (mode 3)
+      { "glob": "*.vpk|*.bin", "rename": "{workshop_id}.vpk" },
+      { "glob": "*.{jpg,jpeg,png}", "rename": "{workshop_id}.{ext}" }
+    ]
+  }
 }
 ```
+
+The helper has three install modes, kept deliberately distinct:
+1. `archive: true` → zip the whole downloaded folder as-is.
+2. `install_rule.match` non-empty → select files by glob (first match wins) and
+   map each to its destination via the optional `rename` template.
+3. `install_rule` absent or `match` empty → mirror every regular file under its
+   original relative path.
+
+`rename` tokens: `{workshop_id}`, `{app_id}`, `{ext}` (lowercased original
+extension), `{basename}` (original stem). It may contain `/` subdirectories and
+is validated as a safe relative path; the helper rejects path escapes, unknown
+tokens, and duplicate destinations. The `auth` and `post_install` preset fields
+are handled extension-side and are **not** sent to the helper.
 
 Response `202 Accepted`:
 ```json
@@ -72,12 +91,13 @@ Stream the downloaded artifact. Called by **Wings**, not the extension.
   names the file correctly.
 - `403` if token mismatch, `404` if job unknown, `409` if job not yet `ready`.
 
-For normal non-archive installs, the helper can serve a generated zip containing
-only the selected install artifacts. The `files` array tells the extension which
-filenames should exist after Wings decompresses the transfer zip — these are the
-**install names**, not necessarily the raw SteamCMD filenames. For L4D2 (app 550)
-the helper renames the downloaded `<ugc-handle>_legacy.bin` to `<workshop_id>.vpk`
-(and a paired image to `<workshop_id>.<ext>`) so the dedicated server loads it.
+For non-archive installs the helper serves a generated transfer zip containing the
+selected files mapped to their install destinations. The `files` array tells the
+extension which paths should exist after Wings decompresses the transfer zip —
+these are the **install destinations**, not necessarily the raw SteamCMD
+filenames. The L4D2 rename (`<ugc-handle>_legacy.bin` → `<workshop_id>.vpk` plus a
+paired image) is no longer hardcoded; it is just the default L4D2 preset's
+`install_rule`, so any game can be configured the same way.
 
 ### `GET /health`
 Authenticated reachability check.

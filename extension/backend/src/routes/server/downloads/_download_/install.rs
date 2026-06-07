@@ -19,9 +19,6 @@ mod post {
         /// Destination directory inside the server volume (relative to the
         /// server root), e.g. `left4dead2/addons`.
         install_path: String,
-        /// Whether the helper artifact is a zip that must be decompressed in place.
-        #[serde(default)]
-        archive: bool,
     }
 
     #[derive(ToSchema, Serialize)]
@@ -102,8 +99,10 @@ mod post {
         )
         .await?;
 
-        let should_decompress =
-            data.archive || file_name.ends_with(".zip") || !job.files.is_empty();
+        // The helper always hands us a zip transfer container; decompress it into
+        // the volume and remove it. (Driven by the artifact + persisted job state,
+        // never a client-supplied flag.)
+        let should_decompress = file_name.ends_with(".zip") || !job.files.is_empty();
         if should_decompress {
             api.post_servers_server_files_decompress(
                 server.uuid,
@@ -125,6 +124,37 @@ mod post {
                     },
                 )
                 .await;
+        }
+
+        // post_install == "extract": some games ship a mod as a nested archive.
+        // After placing files, decompress any archive among them in place, then
+        // remove it. Best-effort; the transfer container is already gone.
+        if db_job.post_install == "extract" {
+            for nested in job
+                .files
+                .iter()
+                .filter(|f| f.as_str() != file_name.as_str() && is_archive_name(f))
+            {
+                let _ = api
+                    .post_servers_server_files_decompress(
+                        server.uuid,
+                        &wings_api::servers_server_files_decompress::post::RequestBody {
+                            root: install_path.clone().into(),
+                            file: nested.clone().into(),
+                            foreground: true,
+                        },
+                    )
+                    .await;
+                let _ = api
+                    .post_servers_server_files_delete(
+                        server.uuid,
+                        &wings_api::servers_server_files_delete::post::RequestBody {
+                            root: install_path.clone().into(),
+                            files: vec![nested.clone().into()],
+                        },
+                    )
+                    .await;
+            }
         }
 
         let installed_files = if job.files.is_empty() {
@@ -167,6 +197,14 @@ mod post {
             files: installed_files,
         })
         .ok()
+    }
+
+    /// True for filenames that look like an archive we can ask Wings to decompress.
+    fn is_archive_name(name: &str) -> bool {
+        let lower = name.to_ascii_lowercase();
+        [".zip", ".7z", ".tar", ".tar.gz", ".tgz", ".rar"]
+            .iter()
+            .any(|ext| lower.ends_with(ext))
     }
 }
 

@@ -3,6 +3,28 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
+## [Unreleased]
+
+### Added
+- **Data-driven, multi-game install rules.** Game presets now carry an optional
+  `auth`, a `post_install` action, and a `match` list of `{ glob, rename? }`
+  rules. The helper selects + renames downloaded files by these rules instead of
+  a hardcoded `app_id == 550` branch, so new games are added entirely through
+  settings. Empty rules mirror every downloaded file; `rename` supports
+  `{workshop_id}`/`{app_id}`/`{ext}`/`{basename}` tokens and safe subpaths.
+  Glob matching uses `globset`. An admin "Advanced (JSON)" editor authors the
+  rules per preset. See [`docs/games.example.json`](./docs/games.example.json).
+- **Best-effort game auto-detection.** The Workshop tab preselects a preset by
+  scoring the server's egg variables / startup command against configured app
+  ids (high/medium/low confidence); the user can always override.
+- New `20260609000000_post_install` migration persisting the chosen post-install
+  behavior on the download row, so installs no longer trust a client-sent flag.
+
+### Changed
+- The install request no longer takes a client `archive` flag; the transfer zip is
+  always decompressed (driven by persisted job state). `post_install: extract`
+  additionally unpacks any nested archive among the installed files.
+
 ## [0.2.4]
 
 ### Added

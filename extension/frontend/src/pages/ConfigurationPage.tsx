@@ -3,10 +3,13 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   ActionIcon,
   Alert,
+  Anchor,
   Badge,
   Button,
   Card,
+  Collapse,
   Group,
+  JsonInput,
   NumberInput,
   PasswordInput,
   Stack,
@@ -23,6 +26,18 @@ import updateSettings from '../api/admin/updateSettings.ts';
 import type { GamePreset } from '../api/getConfig.ts';
 import { useToast } from '@/providers/ToastProvider.tsx';
 
+const AUTHS = ['default', 'anonymous', 'account'];
+const POST_INSTALLS = ['none', 'extract'];
+
+/** Render a preset's advanced rule fields as the editable JSON document. */
+function advancedJson(p: GamePreset): string {
+  return JSON.stringify(
+    { auth: p.auth ?? 'default', match: p.match ?? [], postInstall: p.postInstall ?? 'none' },
+    null,
+    2,
+  );
+}
+
 export default function ConfigurationPage() {
   const { addToast } = useToast();
 
@@ -34,6 +49,9 @@ export default function ConfigurationPage() {
   const [steamApiKeySet, setSteamApiKeySet] = useState(false);
   const [defaultAnonymous, setDefaultAnonymous] = useState(true);
   const [presets, setPresets] = useState<GamePreset[]>([]);
+  // Per-preset advanced rule, edited as raw JSON, aligned with `presets` by index.
+  const [advanced, setAdvanced] = useState<string[]>([]);
+  const [openAdvanced, setOpenAdvanced] = useState<boolean[]>([]);
   const [saving, setSaving] = useState(false);
   const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
@@ -46,6 +64,8 @@ export default function ConfigurationPage() {
         setSteamApiKeySet(s.steamApiKeySet);
         setDefaultAnonymous(s.defaultAnonymous);
         setPresets(s.gamePresets);
+        setAdvanced(s.gamePresets.map(advancedJson));
+        setOpenAdvanced(s.gamePresets.map(() => false));
         setLoaded(true);
       })
       .catch((err) => addToast(httpErrorToHuman(err), 'error'));
@@ -55,7 +75,57 @@ export default function ConfigurationPage() {
   const updatePreset = (index: number, patch: Partial<GamePreset>) =>
     setPresets((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
 
+  const addPreset = () => {
+    setPresets((prev) => [...prev, { appId: 0, name: '', installPath: '' }]);
+    setAdvanced((prev) => [...prev, advancedJson({ appId: 0, name: '', installPath: '' })]);
+    setOpenAdvanced((prev) => [...prev, false]);
+  };
+
+  const removePreset = (index: number) => {
+    setPresets((prev) => prev.filter((_, i) => i !== index));
+    setAdvanced((prev) => prev.filter((_, i) => i !== index));
+    setOpenAdvanced((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleSave = async () => {
+    // Merge each preset's advanced JSON back into the preset, validating shape.
+    const merged: GamePreset[] = [];
+    for (let i = 0; i < presets.length; i++) {
+      const label = presets[i].name || `#${i + 1}`;
+      let adv: { auth?: string; match?: unknown; postInstall?: string };
+      try {
+        adv = JSON.parse(advanced[i] || '{}');
+      } catch {
+        addToast(`Preset ${label}: advanced JSON is not valid`, 'error');
+        return;
+      }
+      const auth = adv.auth ?? 'default';
+      if (!AUTHS.includes(auth)) {
+        addToast(`Preset ${label}: auth must be one of ${AUTHS.join(', ')}`, 'error');
+        return;
+      }
+      const postInstall = adv.postInstall ?? 'none';
+      if (!POST_INSTALLS.includes(postInstall)) {
+        addToast(`Preset ${label}: postInstall must be one of ${POST_INSTALLS.join(', ')}`, 'error');
+        return;
+      }
+      const rawMatch = Array.isArray(adv.match) ? adv.match : [];
+      const match: { glob: string; rename?: string }[] = [];
+      for (const m of rawMatch as Array<{ glob?: unknown; rename?: unknown }>) {
+        if (typeof m?.glob !== 'string' || !m.glob.trim()) {
+          addToast(`Preset ${label}: every match entry needs a non-empty "glob"`, 'error');
+          return;
+        }
+        match.push({ glob: m.glob, ...(typeof m.rename === 'string' ? { rename: m.rename } : {}) });
+      }
+      merged.push({
+        ...presets[i],
+        auth: auth as GamePreset['auth'],
+        match,
+        postInstall: postInstall as GamePreset['postInstall'],
+      });
+    }
+
     setSaving(true);
     try {
       await updateSettings({
@@ -64,7 +134,7 @@ export default function ConfigurationPage() {
         helperToken: helperToken !== '' ? helperToken : undefined,
         steamApiKey: steamApiKey !== '' ? steamApiKey : undefined,
         defaultAnonymous,
-        gamePresets: presets,
+        gamePresets: merged,
       });
       addToast('Settings saved', 'success');
       if (helperToken !== '') setHelperTokenSet(true);
@@ -166,42 +236,56 @@ export default function ConfigurationPage() {
       <Card withBorder radius='md' padding='lg'>
         <Group justify='space-between' mb='sm'>
           <Title order={4}>Game presets</Title>
-          <Button
-            variant='subtle'
-            leftSection={<FontAwesomeIcon icon={faPlus} />}
-            onClick={() =>
-              setPresets((prev) => [...prev, { appId: 0, name: '', installPath: '' }])
-            }
-          >
+          <Button variant='subtle' leftSection={<FontAwesomeIcon icon={faPlus} />} onClick={addPreset}>
             Add preset
           </Button>
         </Group>
-        <Stack gap='sm'>
+        <Stack gap='lg'>
           {presets.map((preset, index) => (
-            <Group key={index} grow align='end'>
-              <NumberInput
-                label='App ID'
-                value={preset.appId}
-                onChange={(v) => updatePreset(index, { appId: Number(v) || 0 })}
-              />
-              <TextInput
-                label='Name'
-                value={preset.name}
-                onChange={(e) => updatePreset(index, { name: e.currentTarget.value })}
-              />
-              <TextInput
-                label='Install path'
-                value={preset.installPath}
-                onChange={(e) => updatePreset(index, { installPath: e.currentTarget.value })}
-              />
-              <ActionIcon
-                color='red'
-                variant='subtle'
-                onClick={() => setPresets((prev) => prev.filter((_, i) => i !== index))}
+            <Stack key={index} gap='xs'>
+              <Group grow align='end'>
+                <NumberInput
+                  label='App ID'
+                  value={preset.appId}
+                  onChange={(v) => updatePreset(index, { appId: Number(v) || 0 })}
+                />
+                <TextInput
+                  label='Name'
+                  value={preset.name}
+                  onChange={(e) => updatePreset(index, { name: e.currentTarget.value })}
+                />
+                <TextInput
+                  label='Install path'
+                  value={preset.installPath}
+                  onChange={(e) => updatePreset(index, { installPath: e.currentTarget.value })}
+                />
+                <ActionIcon color='red' variant='subtle' onClick={() => removePreset(index)}>
+                  <FontAwesomeIcon icon={faTrash} />
+                </ActionIcon>
+              </Group>
+              <Anchor
+                size='xs'
+                onClick={() =>
+                  setOpenAdvanced((prev) => prev.map((o, i) => (i === index ? !o : o)))
+                }
               >
-                <FontAwesomeIcon icon={faTrash} />
-              </ActionIcon>
-            </Group>
+                {openAdvanced[index] ? '▾' : '▸'} Advanced (JSON)
+              </Anchor>
+              <Collapse in={!!openAdvanced[index]}>
+                <JsonInput
+                  label='Install rule'
+                  description='auth: default | anonymous | account · match: [{ "glob", "rename"? }] (empty = mirror every file) · postInstall: none | extract. Rename tokens: {workshop_id} {app_id} {ext} {basename}'
+                  value={advanced[index] ?? ''}
+                  onChange={(v) =>
+                    setAdvanced((prev) => prev.map((t, i) => (i === index ? v : t)))
+                  }
+                  validationError='Invalid JSON'
+                  formatOnBlur
+                  autosize
+                  minRows={5}
+                />
+              </Collapse>
+            </Stack>
           ))}
         </Stack>
       </Card>

@@ -95,6 +95,7 @@ mod put {
             ext.default_anonymous = default_anonymous;
         }
         if let Some(game_presets) = data.game_presets {
+            crate::validation::validate_game_presets(&game_presets)?;
             ext.game_presets = game_presets;
         }
 

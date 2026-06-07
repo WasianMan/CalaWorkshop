@@ -86,8 +86,12 @@ export default function WorkshopPage() {
       .then((cfg) => {
         setConfig(cfg);
         if (cfg.presets.length > 0) {
-          setPresetIndex(0);
-          setInstallPath(cfg.presets[0].installPath);
+          // Preselect the preset matching the auto-detected app id, else the first.
+          const detectedIdx =
+            cfg.detectedAppId != null ? cfg.presets.findIndex((p) => p.appId === cfg.detectedAppId) : -1;
+          const idx = detectedIdx >= 0 ? detectedIdx : 0;
+          setPresetIndex(idx);
+          setInstallPath(cfg.presets[idx].installPath);
         }
         if (cfg.canLinkSteam) {
           listAccounts()
@@ -117,7 +121,7 @@ export default function WorkshopPage() {
 
   const preset = useMemo(() => config?.presets[presetIndex], [config, presetIndex]);
 
-  const pollJob = async (jobId: string, path: string, isArchive: boolean) => {
+  const pollJob = async (jobId: string, path: string) => {
     for (;;) {
       await sleep(2000);
       let job;
@@ -136,7 +140,7 @@ export default function WorkshopPage() {
       if (job.state === 'ready') {
         updateJob(jobId, { state: 'installing' });
         try {
-          const result = await installJob(server.uuid, jobId, path, isArchive);
+          const result = await installJob(server.uuid, jobId, path);
           updateJob(jobId, { state: 'installed', fileName: result.fileName });
           addToast(`Installed ${result.files?.join(', ') || result.fileName}`, 'success');
           loadInstalled();
@@ -172,7 +176,7 @@ export default function WorkshopPage() {
       });
       setJobs((prev) => [{ id: jobId, workshopId, state }, ...prev]);
       setWorkshopInput('');
-      void pollJob(jobId, path, archive);
+      void pollJob(jobId, path);
     } catch (err) {
       addToast(httpErrorToHuman(err), 'error');
     } finally {
@@ -240,6 +244,11 @@ export default function WorkshopPage() {
                 />
                 <TextInput label='Install path' value={installPath} onChange={(e) => setInstallPath(e.currentTarget.value)} />
               </Group>
+              {config?.detectedAppId != null && preset?.appId === config.detectedAppId ? (
+                <Text size='xs' c='dimmed'>
+                  Auto-selected from this server&apos;s game ({config.detectedAppIdConfidence} confidence). Change it above if needed.
+                </Text>
+              ) : null}
               <TextInput
                 label='Workshop URL or ID'
                 placeholder='https://steamcommunity.com/sharedfiles/filedetails/?id=123456789'

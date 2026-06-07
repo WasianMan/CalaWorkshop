@@ -1,0 +1,45 @@
+[
+  {
+    "app_id": 550,
+    "name": "Left 4 Dead 2",
+    "install_path": "left4dead2/addons",
+    "auth": "account",
+    "match": [
+      { "glob": "*.vpk|*.bin", "rename": "{workshop_id}.vpk" },
+      { "glob": "*.{jpg,jpeg,png}", "rename": "{workshop_id}.{ext}" }
+    ],
+    "post_install": "none"
+  },
+  {
+    "app_id": 4000,
+    "name": "Garry's Mod",
+    "install_path": "garrysmod/addons",
+    "auth": "anonymous",
+    "match": [],
+    "post_install": "none"
+  },
+  {
+    "app_id": 107410,
+    "name": "Arma 3",
+    "install_path": "mods/{workshop_id}",
+    "auth": "account",
+    "match": [{ "glob": "**/*", "rename": "{basename}.{ext}" }],
+    "post_install": "none"
+  },
+  {
+    "app_id": 252490,
+    "name": "Rust",
+    "install_path": "server/rust/oxide/plugins",
+    "auth": "anonymous",
+    "match": [{ "glob": "*.cs" }],
+    "post_install": "none"
+  },
+  {
+    "app_id": 346110,
+    "name": "ARK: Survival Evolved",
+    "install_path": "ShooterGame/Content/Mods",
+    "auth": "anonymous",
+    "match": [{ "glob": "*.{zip,7z}", "rename": "{workshop_id}.{ext}" }],
+    "post_install": "extract"
+  }
+]

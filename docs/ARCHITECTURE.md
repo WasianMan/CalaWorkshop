@@ -17,17 +17,45 @@ independent image published to GHCR.
 ```
 1. User pastes a Workshop URL/ID in the Workshop tab and clicks install.
 2. Frontend → extension:  POST /api/client/servers/{server}/calaworkshop/downloads
-3. Extension → helper:    POST /download {app_id, workshop_id, account?, archive}
+3. Extension → helper:    POST /download {app_id, workshop_id, account?, archive, install_rule}
+                          (the extension resolves install_rule + auth + post_install
+                           from the game preset for this app_id)
                           helper runs SteamCMD, returns a job id + file token
 4. Frontend polls:        GET  …/downloads/{job}        (extension merges persisted DB state with helper /jobs)
 5. When the helper job is "ready":
-   Frontend → extension:  POST …/downloads/{job}/install {install_path, archive}
+   Frontend → extension:  POST …/downloads/{job}/install {install_path}
    Extension → Wings:     post_servers_server_files_pull(server, {
                             root: install_path,
                             url:  http://helper:8090/files/{job}?token=…,
                             file_name, use_header:false, foreground:true })
-                          (+ decompress + delete the zip if archive)
+                          (+ decompress + delete the transfer zip; if the preset's
+                           persisted post_install == "extract", also unpack any
+                           archive among the installed files)
 ```
+
+### Game presets & install rules
+
+Per-game behavior is **data**, not code. Each preset in the extension settings
+carries `app_id`, `name`, `install_path`, an `auth` requirement, a `post_install`
+action, and a `match` list of `{ glob, rename? }` rules. At download time the
+extension resolves the preset for the requested `app_id` and sends the `match`
+rules to the helper, which selects + renames files accordingly (see
+[CONTRACT.md](../CONTRACT.md)). The L4D2 `<workshop_id>.vpk` rename is now just the
+default preset's rule, so new games need no helper code. An app id with no preset
+falls back to "mirror every downloaded file". `post_install` is persisted on the
+download row so the install step is driven by server-side state, not a client flag.
+See [`games.example.json`](./games.example.json) for sample presets.
+
+### App-id auto-detection
+
+The Workshop tab preselects a game by best-effort detection. Calagopus servers
+don't expose a Steam app id as a first-class field, so `GET …/config` reads the
+server's egg variables (`ServerVariable`) and `startup`, and matches candidate
+numbers against configured presets, scored **high** (a variable named like
+`*APP_ID*`/`SRCDS_APPID`), **medium** (a number next to `app_update` /
+`workshop_download_item` / `+app_id` in the startup), or **low** (any numeric
+variable that matches a preset). The highest non-empty tier wins; an ambiguous
+tier returns nothing rather than guessing. The user can always override.
 
 ### Why Wings `files/pull` instead of a bind-mounted sidecar
 

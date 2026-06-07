@@ -14,8 +14,53 @@ use shared::extensions::settings::{
 };
 use utoipa::ToSchema;
 
-/// A game preset: the Steam app id plus the default place workshop content is
-/// installed for that game. Seeded with Left 4 Dead 2; admins can add more.
+/// Whether downloads for a game should authenticate.
+///
+/// `Default` defers to the global `default_anonymous` switch; `Anonymous` and
+/// `Account` are explicit per-game overrides surfaced to the Workshop tab so it
+/// can nudge the user toward (or away from) a linked Steam account.
+#[derive(ToSchema, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthRequirement {
+    /// Use the global `default_anonymous` setting.
+    #[default]
+    Default,
+    /// This game can be downloaded anonymously.
+    Anonymous,
+    /// This game requires a linked Steam account that owns it (e.g. L4D2).
+    Account,
+}
+
+/// What to do after the helper artifact has been pulled into the volume.
+///
+/// `None` just places the files; `Extract` additionally decompresses any archive
+/// among the installed files in place (for games that ship a mod as a nested
+/// archive). Symlinking is intentionally unsupported — placement goes through
+/// Wings and the helper never touches a volume.
+#[derive(ToSchema, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum PostInstall {
+    #[default]
+    None,
+    Extract,
+}
+
+/// A single file-selection rule. `glob` may contain `|`-separated alternatives
+/// (e.g. `*.vpk|*.bin`); brace alternation (`*.{jpg,jpeg,png}`) is also
+/// supported. The optional `rename` template maps each matched file to its
+/// install destination; tokens: `{workshop_id}`, `{app_id}`, `{ext}` (lowercased
+/// original extension), `{basename}` (original stem). It may include `/`
+/// subdirectories and is validated as a safe relative path by the helper.
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct MatchRule {
+    pub glob: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rename: Option<String>,
+}
+
+/// A game preset: the Steam app id, the default install path, and an optional
+/// data-driven install rule. Seeded with Left 4 Dead 2; admins can add more
+/// games (and richer rules) entirely through settings — no code change needed.
 #[derive(ToSchema, Serialize, Deserialize, Clone)]
 pub struct GamePreset {
     /// Steam application id (e.g. 550 for Left 4 Dead 2).
@@ -24,14 +69,38 @@ pub struct GamePreset {
     pub name: String,
     /// Default install path inside the server volume, relative to its root.
     pub install_path: String,
+    /// Per-game auth requirement (advisory; defers to `default_anonymous`).
+    #[serde(default)]
+    pub auth: AuthRequirement,
+    /// File-selection/rename rules. Empty = mirror every downloaded file as-is.
+    #[serde(default, rename = "match")]
+    pub r#match: Vec<MatchRule>,
+    /// Post-install behavior once files land in the volume.
+    #[serde(default)]
+    pub post_install: PostInstall,
 }
 
 impl GamePreset {
     fn defaults() -> Vec<GamePreset> {
+        // L4D2's special-casing now lives here as data instead of in helper code:
+        // SteamCMD delivers app-550 items as `<handle>_legacy.bin` (the raw VPK)
+        // and the dedicated server only loads addons named `<workshop_id>.vpk`.
         vec![GamePreset {
             app_id: 550,
             name: "Left 4 Dead 2".to_string(),
             install_path: "left4dead2/addons".to_string(),
+            auth: AuthRequirement::Account,
+            r#match: vec![
+                MatchRule {
+                    glob: "*.vpk|*.bin".to_string(),
+                    rename: Some("{workshop_id}.vpk".to_string()),
+                },
+                MatchRule {
+                    glob: "*.{jpg,jpeg,png}".to_string(),
+                    rename: Some("{workshop_id}.{ext}".to_string()),
+                },
+            ],
+            post_install: PostInstall::None,
         }]
     }
 }

@@ -99,6 +99,10 @@ struct DownloadRequest {
     account: Option<String>,
     #[serde(default)]
     archive: bool,
+    /// Data-driven file selection/rename rule resolved by the extension from the
+    /// game preset. Absent or empty `match` ⇒ mirror every downloaded file.
+    #[serde(default)]
+    install_rule: crate::steamcmd::InstallRule,
 }
 
 #[derive(Debug, Serialize)]
@@ -152,8 +156,9 @@ async fn post_download(
     let archive = req.archive;
     let app_id = req.app_id;
     let workshop_id = req.workshop_id;
+    let install_rule = req.install_rule.clone();
     tokio::spawn(async move {
-        run_download(bg_state, id, account, archive, app_id, workshop_id).await;
+        run_download(bg_state, id, account, archive, app_id, workshop_id, install_rule).await;
     });
 
     let body = DownloadResponse {
@@ -165,6 +170,7 @@ async fn post_download(
 }
 
 /// The background worker that drives a single job to `ready` or `failed`.
+#[allow(clippy::too_many_arguments)]
 async fn run_download(
     state: AppState,
     id: Uuid,
@@ -172,12 +178,13 @@ async fn run_download(
     archive: bool,
     app_id: u64,
     workshop_id: u64,
+    install_rule: crate::steamcmd::InstallRule,
 ) {
     state
         .update_job(&id, |j| j.state = JobState::Downloading)
         .await;
 
-    let result = do_download(&state, id, account, archive, app_id, workshop_id).await;
+    let result = do_download(&state, id, account, archive, app_id, workshop_id, install_rule).await;
 
     match result {
         Ok((file_name, files, size)) => {
@@ -205,6 +212,7 @@ async fn run_download(
 }
 
 /// Core download → artifact-selection pipeline. Returns `(file_name, size)`.
+#[allow(clippy::too_many_arguments)]
 async fn do_download(
     state: &AppState,
     id: Uuid,
@@ -212,6 +220,7 @@ async fn do_download(
     archive: bool,
     app_id: u64,
     workshop_id: u64,
+    install_rule: crate::steamcmd::InstallRule,
 ) -> anyhow::Result<(String, Vec<String>, u64)> {
     let config = &state.config;
 
@@ -237,15 +246,19 @@ async fn do_download(
     tokio::fs::create_dir_all(&job_dir).await?;
 
     if archive {
+        // Mode 1: zip the whole downloaded folder verbatim.
         let file_name = "archive.zip".to_string();
         let dest = job_dir.join(&file_name);
         let size = steamcmd::zip_folder(content, dest).await?;
         Ok((file_name.clone(), vec![file_name], size))
     } else {
-        let selected = steamcmd::select_install_artifacts(&content).await?;
-        // Map to install names (L4D2 .bin/.vpk -> <workshop_id>.vpk) so the
-        // dedicated server actually loads the addon.
-        let mapped = steamcmd::install_artifact_names(app_id, workshop_id, &selected);
+        // Mode 2/3: select + map files per the resolved install rule (empty rule
+        // mirrors everything). The transfer is always a zip the extension then
+        // pulls + decompresses into the volume.
+        let mapped = steamcmd::apply_install_rule(&content, app_id, workshop_id, &install_rule).await?;
+        if mapped.is_empty() {
+            anyhow::bail!("the install rule matched no files in the downloaded content");
+        }
         let file_name = format!("workshop_{workshop_id}.zip");
         let dest = job_dir.join(&file_name);
         steamcmd::zip_selected_files(&content, &mapped, &dest).await?;

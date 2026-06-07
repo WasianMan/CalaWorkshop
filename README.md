@@ -24,7 +24,10 @@ but other Steam games can be added through presets.
 - Persistent download history and installed-item tracking
 - Managed/imported/unmanaged installed-content list
 - Precise uninstall of files tracked by this extension
-- L4D2 install naming as `<workshop_id>.vpk` plus matching preview image
+- Data-driven, multi-game install rules: per-game presets with glob selection and
+  a rename template (the L4D2 `<workshop_id>.vpk` + preview naming is just the
+  default preset's rule). Unconfigured games mirror every downloaded file.
+- Best-effort game auto-detection from the server's egg, preselecting the preset
 - Per-user Steam account linking with Steam Guard/mobile-auth support
 - Helper and SteamCMD diagnostics in the admin config page
 

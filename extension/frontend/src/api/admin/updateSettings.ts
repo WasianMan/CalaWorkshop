@@ -21,6 +21,12 @@ export default async (input: UpdateSettingsInput): Promise<void> => {
       app_id: p.appId,
       name: p.name,
       install_path: p.installPath,
+      auth: p.auth ?? 'default',
+      match: (p.match ?? []).map((m) => ({
+        glob: m.glob,
+        ...(m.rename ? { rename: m.rename } : {}),
+      })),
+      post_install: p.postInstall ?? 'none',
     }));
   }
 

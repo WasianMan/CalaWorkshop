@@ -29,6 +29,58 @@ pub fn validate_file_name(name: &str) -> Result<(), ApiResponse> {
     Ok(())
 }
 
+/// Known tokens accepted in a `MatchRule.rename` template.
+const RENAME_TOKENS: [&str; 4] = ["{workshop_id}", "{app_id}", "{ext}", "{basename}"];
+
+/// Validate a game preset's install rules at save time so admins get immediate
+/// feedback. The helper re-validates rendered destinations at download time —
+/// this is the friendly first line, not the security boundary.
+pub fn validate_game_presets(presets: &[crate::settings::GamePreset]) -> Result<(), ApiResponse> {
+    for preset in presets {
+        // install_path must be a sane relative path.
+        normalize_server_path(&preset.install_path)
+            .map_err(|_| ApiResponse::error(format!("preset '{}' has an invalid install path", preset.name)))?;
+
+        for rule in &preset.r#match {
+            if rule.glob.trim().is_empty() {
+                return Err(ApiResponse::error(format!(
+                    "preset '{}' has an empty glob",
+                    preset.name
+                )));
+            }
+            if let Some(template) = &rule.rename {
+                validate_rename_template(template).map_err(|reason| {
+                    ApiResponse::error(format!("preset '{}': {reason}", preset.name))
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_rename_template(template: &str) -> Result<(), String> {
+    // Strip known tokens, then ensure no stray braces remain (i.e. unknown token).
+    let mut stripped = template.to_string();
+    for token in RENAME_TOKENS {
+        stripped = stripped.replace(token, "");
+    }
+    if stripped.contains('{') || stripped.contains('}') {
+        return Err(format!("rename template '{template}' has an unknown token"));
+    }
+    // The literal portion must form a safe relative path (subdirs allowed).
+    let literal = stripped.trim_matches('/');
+    if template.starts_with('/') {
+        return Err(format!("rename template '{template}' must be relative"));
+    }
+    if literal
+        .split('/')
+        .any(|seg| seg == ".." || seg.chars().any(char::is_control) || seg.contains(':'))
+    {
+        return Err(format!("rename template '{template}' has an invalid segment"));
+    }
+    Ok(())
+}
+
 pub fn validate_account_label(label: &str) -> Result<(), ApiResponse> {
     if label.is_empty()
         || label.len() > 64

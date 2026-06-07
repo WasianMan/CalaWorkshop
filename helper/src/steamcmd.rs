@@ -3,13 +3,22 @@
 //! This module is deliberately free of any HTTP / axum types so the download
 //! pipeline can be unit-reasoned in isolation.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
+use globset::{Glob, GlobSetBuilder};
+use serde::Deserialize;
 use tokio::process::Command;
 
 use crate::config::Config;
+
+/// Safety ceilings for an `InstallRule` so a malicious or buggy preset can't make
+/// the helper select an unbounded number of files or emit huge paths.
+const MAX_RULES: usize = 64;
+const MAX_MATCHED_FILES: usize = 4096;
+const MAX_DEST_LEN: usize = 512;
 
 /// Hard ceilings so a stuck steamcmd (e.g. a blocked socket retrying, or a Steam
 /// Guard prompt it can never satisfy non-interactively) can't hang a request or
@@ -406,83 +415,175 @@ pub async fn largest_file(dir: &Path) -> Option<(PathBuf, u64)> {
     best
 }
 
-/// Pick the files a normal install should place into a server. L4D2 workshop
-/// items are usually a `.vpk` plus a same-stem preview image.
-pub async fn select_install_artifacts(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = regular_files(dir).await?;
-    files.sort();
-
-    let vpk = files
-        .iter()
-        .find(|p| has_ext(p, "vpk"))
-        .cloned()
-        .or_else(|| {
-            files
-                .iter()
-                .filter_map(|p| std::fs::metadata(p).ok().map(|m| (p, m.len())))
-                .max_by_key(|(_, len)| *len)
-                .map(|(p, _)| p.clone())
-        })
-        .ok_or_else(|| anyhow!("no files found in downloaded content"))?;
-
-    let mut selected = vec![vpk.clone()];
-    if let Some(stem) = vpk.file_stem().and_then(|s| s.to_str()) {
-        if let Some(image) = files.iter().find(|p| {
-            p.file_stem().and_then(|s| s.to_str()) == Some(stem)
-                && (has_ext(p, "jpg") || has_ext(p, "jpeg") || has_ext(p, "png"))
-        }) {
-            selected.push(image.clone());
-        }
-    }
-
-    Ok(selected
-        .into_iter()
-        .map(|p| p.strip_prefix(dir).unwrap_or(&p).to_path_buf())
-        .collect())
+/// A single file-selection rule received from the extension. `glob` may carry
+/// `|`-separated alternatives (e.g. `*.vpk|*.bin`); brace alternation
+/// (`*.{jpg,jpeg,png}`) is handled natively by `globset`. `rename` is an optional
+/// destination template (see [`render_template`]).
+#[derive(Debug, Clone, Deserialize)]
+pub struct MatchRule {
+    pub glob: String,
+    #[serde(default)]
+    pub rename: Option<String>,
 }
 
-/// Map selected source artifacts to the filenames they should be installed as.
+/// The resolved install rule for a download. An empty `matchers` list means
+/// "mirror every downloaded file under its original relative path".
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct InstallRule {
+    #[serde(default, rename = "match")]
+    pub matchers: Vec<MatchRule>,
+}
+
+/// Decide which downloaded files to install and under what destination path.
 ///
-/// SteamCMD delivers L4D2 (app 550) workshop items as a single
-/// `<ugc-handle>_legacy.bin` (the raw VPK), and the dedicated server only loads
-/// addons named `<workshop_id>.vpk`. So for app 550 we rename the primary
-/// artifact to `<workshop_id>.vpk` and a paired preview image to
-/// `<workshop_id>.<ext>`. Other apps keep their original filenames.
-pub fn install_artifact_names(
+/// Returns `(source_relative_to_content_dir, install_destination)` pairs. With no
+/// matchers, every regular file is mirrored as-is; with matchers, the first
+/// matching rule (lowest index) wins and its `rename` template (if any) produces
+/// the destination. Every destination is validated as a safe relative path and
+/// duplicates are rejected.
+pub async fn apply_install_rule(
+    content_dir: &Path,
     app_id: u64,
     workshop_id: u64,
-    selected: &[PathBuf],
-) -> Vec<(PathBuf, String)> {
-    selected
-        .iter()
-        .map(|src| {
-            let original = src
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| src.to_string_lossy().replace('\\', "/"));
+    rule: &InstallRule,
+) -> Result<Vec<(PathBuf, String)>> {
+    if rule.matchers.len() > MAX_RULES {
+        bail!(
+            "install rule has too many match entries ({} > {MAX_RULES})",
+            rule.matchers.len()
+        );
+    }
 
-            let dest = if app_id == 550 {
-                if is_image(src) {
-                    let ext = src
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("jpg")
-                        .to_ascii_lowercase();
-                    format!("{workshop_id}.{ext}")
-                } else {
-                    format!("{workshop_id}.vpk")
-                }
-            } else {
-                original
-            };
+    // Files relative to the content root, sorted for deterministic output.
+    let mut rels: Vec<PathBuf> = regular_files(content_dir)
+        .await?
+        .into_iter()
+        .map(|abs| abs.strip_prefix(content_dir).unwrap_or(&abs).to_path_buf())
+        .collect();
+    rels.sort();
 
-            (src.clone(), dest)
-        })
-        .collect()
+    // Mode 3: mirror everything under its original relative name.
+    if rule.matchers.is_empty() {
+        let mut out = Vec::with_capacity(rels.len());
+        for rel in &rels {
+            let dest = rel_to_dest(rel);
+            validate_install_dest(&dest)?;
+            out.push((rel.clone(), dest));
+        }
+        return finalize_selection(out);
+    }
+
+    // Mode 2: compile a GlobSet; remember which matcher each compiled glob owns.
+    let mut builder = GlobSetBuilder::new();
+    let mut owner: Vec<usize> = Vec::new();
+    for (i, m) in rule.matchers.iter().enumerate() {
+        for pat in m.glob.split('|') {
+            let pat = pat.trim();
+            if pat.is_empty() {
+                continue;
+            }
+            let glob = Glob::new(pat).with_context(|| format!("invalid glob '{pat}'"))?;
+            builder.add(glob);
+            owner.push(i);
+        }
+    }
+    let set = builder.build().context("building glob set")?;
+
+    let mut out = Vec::new();
+    for rel in &rels {
+        let rel_str = rel_to_dest(rel);
+        let Some(rule_idx) = set
+            .matches(&rel_str)
+            .into_iter()
+            .map(|builder_idx| owner[builder_idx])
+            .min()
+        else {
+            continue; // unmatched files are simply not installed
+        };
+        let dest = match &rule.matchers[rule_idx].rename {
+            Some(tpl) => render_template(tpl, app_id, workshop_id, rel)?,
+            None => rel_str,
+        };
+        validate_install_dest(&dest)?;
+        out.push((rel.clone(), dest));
+    }
+    finalize_selection(out)
 }
 
-fn is_image(path: &Path) -> bool {
-    has_ext(path, "jpg") || has_ext(path, "jpeg") || has_ext(path, "png")
+/// Enforce the matched-file ceiling and reject duplicate destinations.
+fn finalize_selection(out: Vec<(PathBuf, String)>) -> Result<Vec<(PathBuf, String)>> {
+    if out.len() > MAX_MATCHED_FILES {
+        bail!(
+            "install rule matched too many files ({} > {MAX_MATCHED_FILES})",
+            out.len()
+        );
+    }
+    let mut seen = HashSet::new();
+    for (_, dest) in &out {
+        if !seen.insert(dest.as_str()) {
+            bail!("install rule produces duplicate destination '{dest}'");
+        }
+    }
+    Ok(out)
+}
+
+/// Render a `rename` template. Supported tokens: `{workshop_id}`, `{app_id}`,
+/// `{ext}` (lowercased original extension), `{basename}` (original stem). Any
+/// leftover `{`/`}` means an unknown token, which is rejected rather than written
+/// literally to disk.
+fn render_template(tpl: &str, app_id: u64, workshop_id: u64, rel: &Path) -> Result<String> {
+    let ext = rel
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let basename = rel
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_string();
+
+    let out = tpl
+        .replace("{workshop_id}", &workshop_id.to_string())
+        .replace("{app_id}", &app_id.to_string())
+        .replace("{ext}", &ext)
+        .replace("{basename}", &basename);
+
+    if out.len() > MAX_DEST_LEN {
+        bail!("rendered install path '{out}' is too long");
+    }
+    if out.contains('{') || out.contains('}') {
+        bail!("rename template '{tpl}' contains an unknown token");
+    }
+    Ok(out)
+}
+
+/// Relative path as a forward-slash string suitable for matching and zip names.
+fn rel_to_dest(rel: &Path) -> String {
+    rel.to_string_lossy().replace('\\', "/")
+}
+
+/// Reject anything that could escape the install root or is otherwise unsafe.
+fn validate_install_dest(dest: &str) -> Result<()> {
+    let norm = dest.replace('\\', "/");
+    if norm.is_empty() || norm.len() > MAX_DEST_LEN {
+        bail!("invalid install destination '{dest}'");
+    }
+    if norm.starts_with('/') {
+        bail!("install destination '{dest}' must be relative");
+    }
+    for seg in norm.split('/') {
+        if seg.is_empty() || seg == "." || seg == ".." {
+            bail!("install destination '{dest}' has an invalid path segment");
+        }
+        if seg.contains(':') {
+            bail!("install destination '{dest}' contains a drive/colon segment");
+        }
+        if seg.chars().any(char::is_control) {
+            bail!("install destination '{dest}' contains control characters");
+        }
+    }
+    Ok(())
 }
 
 async fn regular_files(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -500,13 +601,6 @@ async fn regular_files(dir: &Path) -> Result<Vec<PathBuf>> {
         }
     }
     Ok(out)
-}
-
-fn has_ext(path: &Path, ext: &str) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.eq_ignore_ascii_case(ext))
-        .unwrap_or(false)
 }
 
 /// Zip the selected source files into `dest`, each stored under its mapped
@@ -625,8 +719,8 @@ fn extract_error_line(out: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{install_artifact_names, parse_login_outcome, LoginOutcome};
-    use std::path::PathBuf;
+    use super::*;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn login_no_connection_is_not_invalid_credentials() {
@@ -690,28 +784,131 @@ mod tests {
         assert_eq!(outcome, LoginOutcome::Ok);
     }
 
-    #[test]
-    fn l4d2_legacy_bin_is_installed_as_workshop_id_vpk() {
-        let mapped = install_artifact_names(
-            550,
-            2888803926,
-            &[PathBuf::from("9372098838249685383_legacy.bin")],
-        );
+    // --- install-rule evaluator ---------------------------------------------
+
+    /// Create a throwaway content dir populated with empty files.
+    async fn make_content(files: &[&str]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("calaworkshop-test-{}", uuid::Uuid::new_v4()));
+        for f in files {
+            let path = dir.join(f);
+            if let Some(parent) = path.parent() {
+                tokio::fs::create_dir_all(parent).await.unwrap();
+            }
+            tokio::fs::write(&path, b"x").await.unwrap();
+        }
+        dir
+    }
+
+    /// Destinations only, sorted, for order-independent assertions.
+    fn dests(mut v: Vec<(PathBuf, String)>) -> Vec<String> {
+        v.sort_by(|a, b| a.1.cmp(&b.1));
+        v.into_iter().map(|(_, d)| d).collect()
+    }
+
+    fn l4d2_rule() -> InstallRule {
+        InstallRule {
+            matchers: vec![
+                MatchRule {
+                    glob: "*.vpk|*.bin".into(),
+                    rename: Some("{workshop_id}.vpk".into()),
+                },
+                MatchRule {
+                    glob: "*.{jpg,jpeg,png}".into(),
+                    rename: Some("{workshop_id}.{ext}".into()),
+                },
+            ],
+        }
+    }
+
+    #[tokio::test]
+    async fn l4d2_rule_renames_bin_and_pairs_image() {
+        let dir = make_content(&[
+            "9372098838249685383_legacy.bin",
+            "9372098838249685383_legacy.jpg",
+        ])
+        .await;
+        let mapped = apply_install_rule(&dir, 550, 2888803926, &l4d2_rule())
+            .await
+            .unwrap();
         assert_eq!(
-            mapped,
-            vec![(
-                PathBuf::from("9372098838249685383_legacy.bin"),
-                "2888803926.vpk".to_string(),
-            )]
+            dests(mapped),
+            vec!["2888803926.jpg".to_string(), "2888803926.vpk".to_string()]
         );
+        tokio::fs::remove_dir_all(&dir).await.ok();
+    }
+
+    #[tokio::test]
+    async fn empty_rule_mirrors_all_files_preserving_structure() {
+        let dir = make_content(&["a.txt", "sub/b.dat"]).await;
+        let mapped = apply_install_rule(&dir, 4000, 1, &InstallRule::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            dests(mapped),
+            vec!["a.txt".to_string(), "sub/b.dat".to_string()]
+        );
+        tokio::fs::remove_dir_all(&dir).await.ok();
+    }
+
+    #[tokio::test]
+    async fn unmatched_files_are_skipped() {
+        let dir = make_content(&["keep.pak", "ignore.log"]).await;
+        let rule = InstallRule {
+            matchers: vec![MatchRule {
+                glob: "*.pak".into(),
+                rename: None,
+            }],
+        };
+        let mapped = apply_install_rule(&dir, 1, 1, &rule).await.unwrap();
+        assert_eq!(dests(mapped), vec!["keep.pak".to_string()]);
+        tokio::fs::remove_dir_all(&dir).await.ok();
+    }
+
+    #[tokio::test]
+    async fn subpath_rename_is_allowed() {
+        let dir = make_content(&["mod.pak"]).await;
+        let rule = InstallRule {
+            matchers: vec![MatchRule {
+                glob: "*.pak".into(),
+                rename: Some("Mods/{basename}.{ext}".into()),
+            }],
+        };
+        let mapped = apply_install_rule(&dir, 1, 1, &rule).await.unwrap();
+        assert_eq!(dests(mapped), vec!["Mods/mod.pak".to_string()]);
+        tokio::fs::remove_dir_all(&dir).await.ok();
+    }
+
+    #[tokio::test]
+    async fn duplicate_destinations_are_rejected() {
+        let dir = make_content(&["a.vpk", "b.vpk"]).await;
+        let rule = InstallRule {
+            matchers: vec![MatchRule {
+                glob: "*.vpk".into(),
+                rename: Some("{workshop_id}.vpk".into()),
+            }],
+        };
+        let err = apply_install_rule(&dir, 550, 99, &rule).await.unwrap_err();
+        assert!(err.to_string().contains("duplicate destination"));
+        tokio::fs::remove_dir_all(&dir).await.ok();
     }
 
     #[test]
-    fn non_l4d2_keeps_original_filenames() {
-        let mapped = install_artifact_names(4000, 123, &[PathBuf::from("mod_main.bin")]);
-        assert_eq!(
-            mapped,
-            vec![(PathBuf::from("mod_main.bin"), "mod_main.bin".to_string())]
-        );
+    fn template_rejects_unknown_token() {
+        let err = render_template("{nope}.vpk", 1, 2, Path::new("a.bin")).unwrap_err();
+        assert!(err.to_string().contains("unknown token"));
+    }
+
+    #[test]
+    fn template_expands_known_tokens() {
+        let out = render_template("{app_id}/{basename}.{ext}", 550, 7, Path::new("Foo.BIN")).unwrap();
+        assert_eq!(out, "550/Foo.bin");
+    }
+
+    #[test]
+    fn dest_rejects_path_escape() {
+        assert!(validate_install_dest("../evil").is_err());
+        assert!(validate_install_dest("/abs").is_err());
+        assert!(validate_install_dest("c:/win").is_err());
+        assert!(validate_install_dest("ok/sub.vpk").is_ok());
     }
 }

@@ -16,6 +16,9 @@ pub struct DownloadJob {
     pub file_name: Option<String>,
     pub files: Vec<String>,
     pub error: Option<String>,
+    /// Post-install behavior persisted at download time (`none` | `extract`), so
+    /// the install step is driven by server-side state, not a client-resent flag.
+    pub post_install: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -60,6 +63,7 @@ fn download_from_row(row: sqlx::postgres::PgRow) -> DownloadJob {
         file_name: row.get("file_name"),
         files: parse_files(row.get("files_json")),
         error: row.get("error"),
+        post_install: row.get("post_install"),
         created_at: row.get("created_at_str"),
         updated_at: row.get("updated_at_str"),
     }
@@ -88,12 +92,13 @@ pub async fn create_download(
     app_id: u32,
     workshop_id: u64,
     metadata: WorkshopMetadata,
+    post_install: &str,
 ) -> Result<DownloadJob, sqlx::Error> {
     let row = sqlx::query(
         r#"
         INSERT INTO dev_wasian_calaworkshop_download_jobs
-            (server_uuid, app_id, workshop_id, state, title, preview_url)
-        VALUES ($1, $2, $3, 'queued', $4, $5)
+            (server_uuid, app_id, workshop_id, state, title, preview_url, post_install)
+        VALUES ($1, $2, $3, 'queued', $4, $5, $6)
         RETURNING *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
         "#,
     )
@@ -102,6 +107,7 @@ pub async fn create_download(
     .bind(workshop_id as i64)
     .bind(metadata.title)
     .bind(metadata.preview_url)
+    .bind(post_install)
     .fetch_one(db)
     .await?;
     Ok(download_from_row(row))

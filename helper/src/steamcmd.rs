@@ -809,11 +809,11 @@ mod tests {
         InstallRule {
             matchers: vec![
                 MatchRule {
-                    glob: "*.vpk|*.bin".into(),
+                    glob: "*.vpk|*_legacy.bin".into(),
                     rename: Some("{workshop_id}.vpk".into()),
                 },
                 MatchRule {
-                    glob: "*.{jpg,jpeg,png}".into(),
+                    glob: "*_legacy.{jpg,jpeg,png}".into(),
                     rename: Some("{workshop_id}.{ext}".into()),
                 },
             ],

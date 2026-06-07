@@ -5,8 +5,8 @@
     "install_path": "left4dead2/addons",
     "auth": "account",
     "match": [
-      { "glob": "*.vpk|*.bin", "rename": "{workshop_id}.vpk" },
-      { "glob": "*.{jpg,jpeg,png}", "rename": "{workshop_id}.{ext}" }
+      { "glob": "*.vpk|*_legacy.bin", "rename": "{workshop_id}.vpk" },
+      { "glob": "*_legacy.{jpg,jpeg,png}", "rename": "{workshop_id}.{ext}" }
     ],
     "post_install": "none"
   },

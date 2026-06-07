@@ -38,8 +38,8 @@ Request:
   "archive": false,           // true = zip the item folder verbatim (mode 1)
   "install_rule": {           // resolved by the extension from the game preset
     "match": [                // empty/omitted = mirror every downloaded file (mode 3)
-      { "glob": "*.vpk|*.bin", "rename": "{workshop_id}.vpk" },
-      { "glob": "*.{jpg,jpeg,png}", "rename": "{workshop_id}.{ext}" }
+      { "glob": "*.vpk|*_legacy.bin", "rename": "{workshop_id}.vpk" },
+      { "glob": "*_legacy.{jpg,jpeg,png}", "rename": "{workshop_id}.{ext}" }
     ]
   }
 }

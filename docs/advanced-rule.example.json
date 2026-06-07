@@ -1,0 +1,8 @@
+{
+  "auth": "account",
+  "match": [
+    { "glob": "*.vpk|*_legacy.bin", "rename": "{workshop_id}.vpk" },
+    { "glob": "*_legacy.{jpg,jpeg,png}", "rename": "{workshop_id}.{ext}" }
+  ],
+  "postInstall": "none"
+}

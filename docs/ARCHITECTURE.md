@@ -44,7 +44,9 @@ rules to the helper, which selects + renames files accordingly (see
 default preset's rule, so new games need no helper code. An app id with no preset
 falls back to "mirror every downloaded file". `post_install` is persisted on the
 download row so the install step is driven by server-side state, not a client flag.
-See [`games.example.json`](./games.example.json) for sample presets.
+See [`games.example.json`](./games.example.json) for full preset examples and
+[`advanced-rule.example.json`](./advanced-rule.example.json) for the exact
+Advanced-box JSON shape.
 
 ### App-id auto-detection
 

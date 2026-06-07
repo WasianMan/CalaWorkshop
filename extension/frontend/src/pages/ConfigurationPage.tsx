@@ -7,14 +7,13 @@ import {
   Badge,
   Button,
   Card,
-  Collapse,
   Group,
-  JsonInput,
   NumberInput,
   PasswordInput,
   Stack,
   Switch,
   Text,
+  Textarea,
   TextInput,
   Title,
 } from '@mantine/core';
@@ -271,20 +270,19 @@ export default function ConfigurationPage() {
               >
                 {openAdvanced[index] ? '▾' : '▸'} Advanced (JSON)
               </Anchor>
-              <Collapse in={!!openAdvanced[index]}>
-                <JsonInput
+              {openAdvanced[index] ? (
+                <Textarea
                   label='Install rule'
                   description='auth: default | anonymous | account · match: [{ "glob", "rename"? }] (empty = mirror every file) · postInstall: none | extract. Rename tokens: {workshop_id} {app_id} {ext} {basename}'
                   value={advanced[index] ?? ''}
                   onChange={(v) =>
-                    setAdvanced((prev) => prev.map((t, i) => (i === index ? v : t)))
+                    setAdvanced((prev) => prev.map((t, i) => (i === index ? v.currentTarget.value : t)))
                   }
-                  validationError='Invalid JSON'
-                  formatOnBlur
                   autosize
                   minRows={5}
+                  styles={{ input: { fontFamily: 'monospace' } }}
                 />
-              </Collapse>
+              ) : null}
             </Stack>
           ))}
         </Stack>

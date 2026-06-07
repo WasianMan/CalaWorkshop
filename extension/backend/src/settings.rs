@@ -103,6 +103,31 @@ impl GamePreset {
             post_install: PostInstall::None,
         }]
     }
+
+    fn l4d2_default() -> GamePreset {
+        GamePreset::defaults()
+            .into_iter()
+            .next()
+            .expect("L4D2 default preset exists")
+    }
+
+    fn hydrate_legacy_defaults(&mut self) {
+        if self.app_id != 550 {
+            return;
+        }
+
+        let default = GamePreset::l4d2_default();
+
+        if self.auth == AuthRequirement::Default {
+            self.auth = default.auth;
+        }
+        if self.r#match.is_empty() {
+            self.r#match = default.r#match;
+        }
+        if self.post_install == PostInstall::None {
+            self.post_install = default.post_install;
+        }
+    }
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Clone)]
@@ -205,9 +230,12 @@ impl SettingsDeserializeExt for ExtensionSettingsDataDeserializer {
             .and_then(|s| s.parse().ok())
             .unwrap_or(defaults.default_anonymous);
 
-        let game_presets = deserializer
+        let mut game_presets = deserializer
             .read_serde_setting("game_presets")
             .unwrap_or_else(|_| GamePreset::defaults());
+        for preset in &mut game_presets {
+            preset.hydrate_legacy_defaults();
+        }
 
         Ok(Box::new(ExtensionSettingsData {
             helper_url,

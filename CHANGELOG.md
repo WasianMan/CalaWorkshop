@@ -13,17 +13,26 @@ All notable changes to this project are documented here. Format loosely follows
   settings. Empty rules mirror every downloaded file; `rename` supports
   `{workshop_id}`/`{app_id}`/`{ext}`/`{basename}` tokens and safe subpaths.
   Glob matching uses `globset`. An admin "Advanced (JSON)" editor authors the
-  rules per preset. See [`docs/games.example.json`](./docs/games.example.json).
+  rules per preset. See [`docs/games.example.json`](./docs/games.example.json)
+  for full preset examples and [`docs/advanced-rule.example.json`](./docs/advanced-rule.example.json)
+  for a copy-pasteable Advanced-box example.
 - **Best-effort game auto-detection.** The Workshop tab preselects a preset by
   scoring the server's egg variables / startup command against configured app
   ids (high/medium/low confidence); the user can always override.
 - New `20260609000000_post_install` migration persisting the chosen post-install
   behavior on the download row, so installs no longer trust a client-sent flag.
+- Branch-test workflow for GHCR helper images and `.c7s` artifacts without
+  moving release tags or `latest`.
 
 ### Changed
 - The install request no longer takes a client `archive` flag; the transfer zip is
   always decompressed (driven by persisted job state). `post_install: extract`
   additionally unpacks any nested archive among the installed files.
+- Existing saved L4D2 presets are hydrated with the new account requirement and
+  install rules on settings load, so upgrades keep producing loadable
+  `<workshop_id>.vpk` files without requiring admins to re-save settings.
+- The Advanced JSON editor now uses a plain textarea with conditional rendering
+  so it works reliably in the panel UI.
 
 ## [0.2.4]
 

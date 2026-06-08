@@ -19,6 +19,7 @@ struct SearchQuery {
     cursor: Option<String>,
     file_type: Option<String>,
     tags: Option<String>,
+    per_page: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -77,14 +78,22 @@ async fn search(
     {
         tags.push("Addon".to_string());
     }
+    let per_page = match query.per_page.unwrap_or(15) {
+        5 => 5,
+        10 => 10,
+        15 => 15,
+        25 => 25,
+        _ => 15,
+    };
     let cache_key = format!(
-        "app={};q={};sort={};cursor={};type={};tags={}",
+        "app={};q={};sort={};cursor={};type={};tags={};per_page={}",
         query.app_id,
         trimmed_query.unwrap_or(""),
         sort.cache_key(),
         query.cursor.as_deref().unwrap_or("").trim(),
         file_type.cache_key(),
-        tags.join("|")
+        tags.join("|"),
+        per_page
     );
 
     if let Some(cached) =
@@ -105,6 +114,7 @@ async fn search(
         query.cursor.as_deref(),
         file_type,
         &tags,
+        per_page,
     )
     .await
     .map_err(|err| ApiResponse::error(format!("Steam search failed: {err:#}")))?;

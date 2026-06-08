@@ -52,6 +52,7 @@ type JobRow = {
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const PAGE_SIZE_OPTIONS = [5, 10, 15, 25];
 
 function parseWorkshopId(input: string): number | null {
   const trimmed = input.trim();
@@ -108,6 +109,7 @@ export default function WorkshopPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchSort, setSearchSort] = useState<WorkshopSearchSort>('popular');
   const [searchFileType, setSearchFileType] = useState<WorkshopFileType>('item');
+  const [searchPerPage, setSearchPerPage] = useState(15);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [showAllTags, setShowAllTags] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -193,6 +195,10 @@ export default function WorkshopPage() {
       .map(([tag]) => tag);
   }, [searchResults]);
   const visibleTags = showAllTags ? discoveredTags : discoveredTags.slice(0, 12);
+  const installedIds = useMemo(
+    () => new Set(installed.map((item) => item.workshopId).filter((id): id is number => typeof id === 'number')),
+    [installed],
+  );
 
   const pollJob = async (jobId: string, path: string) => {
     for (;;) {
@@ -279,6 +285,7 @@ export default function WorkshopPage() {
         cursor,
         fileType: searchFileType,
         tags: selectedTags,
+        perPage: searchPerPage,
       });
       setSearchResults((prev) => (cursor ? [...prev, ...result.items] : result.items));
       setNextCursor(result.nextCursor ?? null);
@@ -297,7 +304,7 @@ export default function WorkshopPage() {
     }, 400);
     return () => window.clearTimeout(timer);
     // biome-ignore lint/correctness/useExhaustiveDependencies: debounced search inputs only
-  }, [mode, preset?.appId, searchQuery, searchSort, searchFileType, selectedTags.join('|'), config?.steamSearchAvailable]);
+  }, [mode, preset?.appId, searchQuery, searchSort, searchFileType, searchPerPage, selectedTags.join('|'), config?.steamSearchAvailable]);
 
   const toggleTag = (tag: string) => {
     if (preset?.appId === 4000 && searchFileType === 'item' && tag.toLowerCase() === 'addon') {
@@ -310,6 +317,7 @@ export default function WorkshopPage() {
     setSearchQuery('');
     setSearchSort('popular');
     setSearchFileType('item');
+    setSearchPerPage(15);
     setSelectedTags(defaultSearchTags(preset?.appId));
     setShowAllTags(false);
   };
@@ -414,6 +422,7 @@ export default function WorkshopPage() {
 
   const renderWorkshopCard = (item: WorkshopSearchItem, action: 'install' | 'collection' | 'none' = 'install') => {
     const installable = !(preset?.appId === 4000 && !item.tags.some((tag) => tag.toLowerCase() === 'addon'));
+    const installedAlready = installedIds.has(item.publishedFileId);
     return (
       <Card withBorder radius='md' padding='sm' key={item.publishedFileId}>
         <Group align='flex-start' wrap='nowrap'>
@@ -437,9 +446,9 @@ export default function WorkshopPage() {
               size='xs'
               leftSection={<FontAwesomeIcon icon={faDownload} />}
               onClick={() => void startAndPoll(item.publishedFileId, item.title)}
-              disabled={!installable}
+              disabled={!installable || installedAlready}
             >
-              {installable ? 'Install' : 'Not addon'}
+              {installedAlready ? 'Installed' : installable ? 'Install' : 'Not addon'}
             </Button>
           ) : action === 'collection' ? (
             <Button size='xs' leftSection={<FontAwesomeIcon icon={faSearch} />} onClick={() => void previewCollectionId(item.publishedFileId)}>
@@ -563,6 +572,12 @@ export default function WorkshopPage() {
                         { value: 'updated', label: 'Recently updated' },
                         { value: 'subscribed', label: 'Most subscribed' },
                       ]}
+                    />
+                    <Select
+                      label='Per page'
+                      value={String(searchPerPage)}
+                      onChange={(v) => setSearchPerPage(Number(v ?? 15))}
+                      data={PAGE_SIZE_OPTIONS.map((size) => ({ value: String(size), label: String(size) }))}
                     />
                   </Group>
                   <Group justify='space-between' align='end'>

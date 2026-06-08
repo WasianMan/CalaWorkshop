@@ -26,6 +26,8 @@ All notable changes to this project are documented here. Format loosely follows
   follow the tested GMAD extraction path instead of surfacing saves/demos.
 - The Steam account picker is now shared across direct, search, and collection
   installs, so account-required games like L4D2 do not require switching tabs.
+- Search results now mark already-installed Workshop items and disable reinstall
+  from the search list. Result count is selectable at 5, 10, 15, or 25 per page.
 
 ## [0.2.5] - 2026-06-08
 

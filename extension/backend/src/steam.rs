@@ -279,13 +279,14 @@ pub async fn query_files(
     cursor: Option<&str>,
     file_type: MatchingFileType,
     tags: &[String],
+    per_page: u32,
 ) -> Result<SearchResponse, anyhow::Error> {
     let mut input = serde_json::json!({
         "query_type": sort.query_type(),
         "cursor": cursor.map(str::trim).filter(|cursor| !cursor.is_empty()).unwrap_or("*"),
         "creator_appid": app_id,
         "appid": app_id,
-        "numperpage": 24,
+        "numperpage": per_page,
         "filetype": file_type.value(),
         "return_vote_data": true,
         "return_tags": true,

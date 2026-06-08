@@ -35,6 +35,7 @@ export default async (
     cursor?: string | null;
     fileType?: WorkshopFileType;
     tags?: string[];
+    perPage?: number;
   },
 ): Promise<WorkshopSearchResponse> => {
   const { data } = await axiosInstance.get(`/api/client/servers/${serverUuid}/calaworkshop/search`, {
@@ -45,6 +46,7 @@ export default async (
       cursor: input.cursor ?? undefined,
       file_type: input.fileType ?? 'item',
       tags: input.tags && input.tags.length > 0 ? input.tags.join(',') : undefined,
+      per_page: input.perPage ?? 15,
     },
   });
   return data;

@@ -1,4 +1,4 @@
-import { faDownload, faRotate, faTrash, faPlus } from '@fortawesome/free-solid-svg-icons';
+import { faDownload, faPlus, faRotate, faSearch, faTrash } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   ActionIcon,
@@ -7,8 +7,11 @@ import {
   Button,
   Card,
   Group,
+  Image,
   Loader,
   Select,
+  SegmentedControl,
+  SimpleGrid,
   Stack,
   Switch,
   Table,
@@ -18,6 +21,7 @@ import {
 } from '@mantine/core';
 import { useEffect, useMemo, useState } from 'react';
 import { httpErrorToHuman } from '@/api/axios.ts';
+import { installCollection, previewCollection, type CollectionPreview } from '../api/collections.ts';
 import deleteDownload from '../api/deleteDownload.ts';
 import deleteInstalled from '../api/deleteInstalled.ts';
 import getConfig, { type WorkshopConfig } from '../api/getConfig.ts';
@@ -26,6 +30,7 @@ import importInstalled from '../api/importInstalled.ts';
 import installJob from '../api/installJob.ts';
 import listDownloads from '../api/listDownloads.ts';
 import listInstalled, { type InstalledEntry } from '../api/listInstalled.ts';
+import searchWorkshop, { type WorkshopSearchItem, type WorkshopSearchSort } from '../api/searchWorkshop.ts';
 import startDownload from '../api/startDownload.ts';
 import listAccounts from '../api/steam/listAccounts.ts';
 import ServerContentContainer from '@/elements/containers/ServerContentContainer.tsx';
@@ -53,15 +58,34 @@ function parseWorkshopId(input: string): number | null {
   return null;
 }
 
+function formatBytes(value?: number | null): string {
+  if (!value) return '';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = value;
+  let idx = 0;
+  while (size >= 1024 && idx < units.length - 1) {
+    size /= 1024;
+    idx += 1;
+  }
+  return `${size.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
+function stars(value?: number | null): string {
+  if (value == null) return 'No votes';
+  return `${value.toFixed(1)} / 5`;
+}
+
 export default function WorkshopPage() {
   const server = useServerStore((s) => s.server);
   const { addToast } = useToast();
 
   const [config, setConfig] = useState<WorkshopConfig | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [presetIndex, setPresetIndex] = useState(0);
+  const [presetIndex, setPresetIndex] = useState<number | null>(null);
   const [installPath, setInstallPath] = useState('');
+  const [mode, setMode] = useState<'direct' | 'search' | 'collection'>('direct');
   const [workshopInput, setWorkshopInput] = useState('');
+  const [collectionInput, setCollectionInput] = useState('');
   const [archive, setArchive] = useState(false);
   const [account, setAccount] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<string[]>([]);
@@ -69,6 +93,14 @@ export default function WorkshopPage() {
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [installed, setInstalled] = useState<InstalledEntry[]>([]);
   const [installedLoading, setInstalledLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchSort, setSearchSort] = useState<WorkshopSearchSort>('popular');
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchResults, setSearchResults] = useState<WorkshopSearchItem[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [collectionPreview, setCollectionPreview] = useState<CollectionPreview | null>(null);
+  const [collectionLoading, setCollectionLoading] = useState(false);
 
   const updateJob = (id: string, patch: Partial<JobRow>) =>
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
@@ -85,13 +117,16 @@ export default function WorkshopPage() {
     getConfig(server.uuid)
       .then((cfg) => {
         setConfig(cfg);
-        if (cfg.presets.length > 0) {
-          // Preselect the preset matching the auto-detected app id, else the first.
-          const detectedIdx =
-            cfg.detectedAppId != null ? cfg.presets.findIndex((p) => p.appId === cfg.detectedAppId) : -1;
-          const idx = detectedIdx >= 0 ? detectedIdx : 0;
-          setPresetIndex(idx);
-          setInstallPath(cfg.presets[idx].installPath);
+        const detectedIdx =
+          cfg.detectedAppId != null && cfg.detectedAppIdConfidence !== 'low'
+            ? cfg.presets.findIndex((p) => p.appId === cfg.detectedAppId)
+            : -1;
+        if (detectedIdx >= 0) {
+          setPresetIndex(detectedIdx);
+          setInstallPath(cfg.presets[detectedIdx].installPath);
+        } else {
+          setPresetIndex(null);
+          setInstallPath('');
         }
         if (cfg.canLinkSteam) {
           listAccounts()
@@ -119,9 +154,13 @@ export default function WorkshopPage() {
     // biome-ignore lint/correctness/useExhaustiveDependencies: load once per server
   }, [server.uuid]);
 
-  const preset = useMemo(() => config?.presets[presetIndex], [config, presetIndex]);
+  const preset = useMemo(
+    () => (presetIndex == null ? null : config?.presets[presetIndex] ?? null),
+    [config, presetIndex],
+  );
   const auth = preset?.auth ?? 'default';
   const accountRequired = auth === 'account' || (auth === 'default' && config?.defaultAnonymous === false);
+  const canUseGame = !!preset && !!installPath.trim();
 
   const pollJob = async (jobId: string, path: string) => {
     for (;;) {
@@ -155,11 +194,9 @@ export default function WorkshopPage() {
     }
   };
 
-  const handleInstall = async () => {
-    if (!preset) return;
-    const workshopId = parseWorkshopId(workshopInput);
-    if (!workshopId) {
-      addToast('Could not read a Workshop ID from that input', 'error');
+  const startAndPoll = async (workshopId: number, title?: string | null) => {
+    if (!preset) {
+      addToast('Select a game first', 'error');
       return;
     }
     const path = installPath.trim();
@@ -171,18 +208,112 @@ export default function WorkshopPage() {
       addToast('Select a linked Steam account for this game', 'error');
       return;
     }
+    const { jobId, state } = await startDownload(server.uuid, {
+      appId: preset.appId,
+      workshopId,
+      account: config?.canLinkSteam ? account : null,
+      archive,
+    });
+    setJobs((prev) => [{ id: jobId, workshopId, state, title }, ...prev]);
+    void pollJob(jobId, path);
+  };
 
+  const handleInstall = async () => {
+    const workshopId = parseWorkshopId(workshopInput);
+    if (!workshopId) {
+      addToast('Could not read a Workshop ID from that input', 'error');
+      return;
+    }
     setSubmitting(true);
     try {
-      const { jobId, state } = await startDownload(server.uuid, {
-        appId: preset.appId,
-        workshopId,
-        account: config?.canLinkSteam ? account : null,
-        archive,
-      });
-      setJobs((prev) => [{ id: jobId, workshopId, state }, ...prev]);
+      await startAndPoll(workshopId);
       setWorkshopInput('');
-      void pollJob(jobId, path);
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const runSearch = async (cursor?: string | null) => {
+    if (!preset || !config?.steamSearchAvailable) return;
+    setSearchLoading(true);
+    setSearchError(null);
+    try {
+      const result = await searchWorkshop(server.uuid, {
+        appId: preset.appId,
+        query: searchQuery,
+        sort: searchQuery.trim() ? searchSort : searchSort === 'relevance' ? 'popular' : searchSort,
+        cursor,
+        fileType: 'item',
+      });
+      setSearchResults((prev) => (cursor ? [...prev, ...result.items] : result.items));
+      setNextCursor(result.nextCursor ?? null);
+    } catch (err) {
+      setSearchError(httpErrorToHuman(err));
+      if (!cursor) setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (mode !== 'search' || !preset || !config?.steamSearchAvailable) return;
+    const timer = window.setTimeout(() => {
+      void runSearch(null);
+    }, 400);
+    return () => window.clearTimeout(timer);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: debounced search inputs only
+  }, [mode, preset?.appId, searchQuery, searchSort, config?.steamSearchAvailable]);
+
+  const handleCollectionPreview = async () => {
+    if (!preset) {
+      addToast('Select a game first', 'error');
+      return;
+    }
+    const collectionId = parseWorkshopId(collectionInput);
+    if (!collectionId) {
+      addToast('Could not read a collection ID from that input', 'error');
+      return;
+    }
+    setCollectionLoading(true);
+    try {
+      setCollectionPreview(await previewCollection(server.uuid, { appId: preset.appId, collectionId }));
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+      setCollectionPreview(null);
+    } finally {
+      setCollectionLoading(false);
+    }
+  };
+
+  const handleCollectionInstall = async () => {
+    if (!preset || !collectionPreview) return;
+    const collectionId = parseWorkshopId(collectionInput);
+    if (!collectionId) return;
+    if (accountRequired && !account) {
+      addToast('Select a linked Steam account for this game', 'error');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await installCollection(server.uuid, {
+        appId: preset.appId,
+        collectionId,
+        account: config?.canLinkSteam ? account : null,
+      });
+      const path = installPath.trim();
+      const rows = result.jobs.map((job, index) => ({
+        id: (job as any).jobId ?? (job as any).job_id,
+        workshopId: collectionPreview.children[index]?.publishedFileId ?? 0,
+        title: collectionPreview.children[index]?.title,
+        state: job.state,
+      }));
+      setJobs((prev) => [...rows, ...prev]);
+      for (const row of rows) {
+        if (row.id) void pollJob(row.id, path);
+      }
+      addToast(`Queued ${rows.length} collection items`, 'success');
     } catch (err) {
       addToast(httpErrorToHuman(err), 'error');
     } finally {
@@ -223,6 +354,25 @@ export default function WorkshopPage() {
   const stateColor = (state: string) =>
     state === 'installed' ? 'green' : state === 'failed' ? 'red' : state === 'ready' || state === 'installing' ? 'blue' : 'gray';
 
+  const renderWorkshopCard = (item: WorkshopSearchItem, action: 'install' | 'none' = 'install') => (
+    <Card withBorder radius='md' padding='sm' key={item.publishedFileId}>
+      <Stack gap='xs'>
+        {item.previewUrl ? <Image src={item.previewUrl} height={120} fit='cover' radius='sm' /> : null}
+        <Text fw={600} lineClamp={2}>{item.title}</Text>
+        <Text size='xs' c='dimmed'>
+          {stars(item.stars)}{item.voteCount ? ` · ${item.voteCount} votes` : ''}{item.subscriptions ? ` · ${item.subscriptions.toLocaleString()} subs` : ''}
+        </Text>
+        {item.fileSize ? <Text size='xs' c='dimmed'>{formatBytes(item.fileSize)}</Text> : null}
+        {item.shortDescription ? <Text size='xs' c='dimmed' lineClamp={3}>{item.shortDescription}</Text> : null}
+        {action === 'install' ? (
+          <Button size='xs' leftSection={<FontAwesomeIcon icon={faDownload} />} onClick={() => void startAndPoll(item.publishedFileId, item.title)}>
+            Install
+          </Button>
+        ) : null}
+      </Stack>
+    </Card>
+  );
+
   return (
     <ServerContentContainer title='Workshop'>
       <Stack gap='md'>
@@ -236,49 +386,150 @@ export default function WorkshopPage() {
         <ServerCan action='workshop.install'>
           <Card withBorder radius='md' padding='lg'>
             <Stack gap='sm'>
-              <Title order={4}>Install a Workshop item</Title>
+              <Title order={4}>Install Workshop content</Title>
               <Group grow align='end'>
                 <Select
                   label='Game'
+                  placeholder='Select a game'
                   data={(config?.presets ?? []).map((p, i) => ({ value: String(i), label: p.name }))}
-                  value={String(presetIndex)}
+                  value={presetIndex == null ? null : String(presetIndex)}
                   onChange={(v) => {
-                    const idx = Number(v ?? 0);
+                    if (v == null) {
+                      setPresetIndex(null);
+                      setInstallPath('');
+                      return;
+                    }
+                    const idx = Number(v);
                     setPresetIndex(idx);
                     if (config?.presets[idx]) setInstallPath(config.presets[idx].installPath);
                   }}
                 />
                 <TextInput label='Install path' value={installPath} onChange={(e) => setInstallPath(e.currentTarget.value)} />
               </Group>
-              {config?.detectedAppId != null && preset?.appId === config.detectedAppId ? (
+              {config?.detectedAppId != null && config.detectedAppIdConfidence === 'low' ? (
+                <Text size='xs' c='dimmed'>Possible game match: {config.detectedAppId}, but confidence is low. Select the game manually.</Text>
+              ) : config?.detectedAppId != null && preset?.appId === config.detectedAppId ? (
                 <Text size='xs' c='dimmed'>
                   Auto-selected from this server&apos;s game ({config.detectedAppIdConfidence} confidence). Change it above if needed.
                 </Text>
               ) : null}
-              <TextInput
-                label='Workshop URL or ID'
-                placeholder='https://steamcommunity.com/sharedfiles/filedetails/?id=123456789'
-                value={workshopInput}
-                onChange={(e) => setWorkshopInput(e.currentTarget.value)}
+
+              <SegmentedControl
+                value={mode}
+                onChange={(v) => setMode(v as typeof mode)}
+                data={[
+                  { value: 'direct', label: 'Direct' },
+                  { value: 'search', label: 'Search' },
+                  { value: 'collection', label: 'Collection' },
+                ]}
               />
-              <Group align='end'>
-                {config?.canLinkSteam ? (
-                  <Select
-                    label='Steam account'
-                    data={[
-                      ...(accountRequired ? [] : [{ value: '', label: 'Anonymous' }]),
-                      ...accounts.map((a) => ({ value: a, label: a })),
-                    ]}
-                    value={accountRequired ? account : account ?? ''}
-                    onChange={(v) => setAccount(v ? v : null)}
-                    w={240}
+
+              {mode === 'direct' ? (
+                <Stack gap='sm'>
+                  <TextInput
+                    label='Workshop URL or ID'
+                    placeholder='https://steamcommunity.com/sharedfiles/filedetails/?id=123456789'
+                    value={workshopInput}
+                    onChange={(e) => setWorkshopInput(e.currentTarget.value)}
                   />
-                ) : null}
-                <Switch label='Archive whole item' checked={archive} onChange={(e) => setArchive(e.currentTarget.checked)} />
-                <Button leftSection={<FontAwesomeIcon icon={faDownload} />} loading={submitting} onClick={handleInstall} disabled={!config?.helperConfigured}>
-                  Download &amp; install
-                </Button>
-              </Group>
+                  <Group align='end'>
+                    {config?.canLinkSteam ? (
+                      <Select
+                        label='Steam account'
+                        data={[
+                          ...(accountRequired ? [] : [{ value: '', label: 'Anonymous' }]),
+                          ...accounts.map((a) => ({ value: a, label: a })),
+                        ]}
+                        value={accountRequired ? account : account ?? ''}
+                        onChange={(v) => setAccount(v ? v : null)}
+                        w={240}
+                      />
+                    ) : null}
+                    <Switch label='Archive whole item' checked={archive} onChange={(e) => setArchive(e.currentTarget.checked)} />
+                    <Button
+                      leftSection={<FontAwesomeIcon icon={faDownload} />}
+                      loading={submitting}
+                      onClick={handleInstall}
+                      disabled={!config?.helperConfigured || !canUseGame}
+                    >
+                      Download &amp; install
+                    </Button>
+                  </Group>
+                </Stack>
+              ) : null}
+
+              {mode === 'search' ? (
+                <Stack gap='sm'>
+                  {!config?.steamSearchAvailable ? <Alert color='yellow'>Steam Web API key is required for search.</Alert> : null}
+                  <Group grow align='end'>
+                    <TextInput
+                      label='Search'
+                      placeholder='Leave blank to explore popular items'
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.currentTarget.value)}
+                      leftSection={<FontAwesomeIcon icon={faSearch} />}
+                    />
+                    <Select
+                      label='Sort'
+                      value={searchSort}
+                      onChange={(v) => setSearchSort((v ?? 'popular') as WorkshopSearchSort)}
+                      data={[
+                        { value: 'relevance', label: 'Relevance' },
+                        { value: 'popular', label: 'Popular' },
+                        { value: 'trending', label: 'Trending' },
+                        { value: 'newest', label: 'Newest' },
+                        { value: 'updated', label: 'Recently updated' },
+                        { value: 'subscribed', label: 'Most subscribed' },
+                      ]}
+                    />
+                  </Group>
+                  {searchError ? <Alert color='red'>{searchError}</Alert> : null}
+                  {searchLoading && searchResults.length === 0 ? <Loader size='sm' /> : null}
+                  <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>{searchResults.map((item) => renderWorkshopCard(item))}</SimpleGrid>
+                  {nextCursor ? (
+                    <Button variant='subtle' loading={searchLoading} onClick={() => void runSearch(nextCursor)} disabled={!canUseGame}>
+                      Load more
+                    </Button>
+                  ) : null}
+                </Stack>
+              ) : null}
+
+              {mode === 'collection' ? (
+                <Stack gap='sm'>
+                  <Group grow align='end'>
+                    <TextInput
+                      label='Collection URL or ID'
+                      placeholder='https://steamcommunity.com/sharedfiles/filedetails/?id=123456789'
+                      value={collectionInput}
+                      onChange={(e) => setCollectionInput(e.currentTarget.value)}
+                    />
+                    <Button loading={collectionLoading} onClick={handleCollectionPreview} disabled={!canUseGame}>
+                      Preview collection
+                    </Button>
+                  </Group>
+                  {collectionPreview ? (
+                    <Stack gap='sm'>
+                      <Text size='sm'>
+                        {collectionPreview.collection?.title ?? 'Collection'} · {collectionPreview.children.length} installable items
+                      </Text>
+                      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
+                        {collectionPreview.children.slice(0, 12).map((item) => renderWorkshopCard(item, 'none'))}
+                      </SimpleGrid>
+                      {collectionPreview.skipped.length > 0 ? (
+                        <Alert color='yellow'>{collectionPreview.skipped.length} collection entries were skipped.</Alert>
+                      ) : null}
+                      <Button
+                        leftSection={<FontAwesomeIcon icon={faDownload} />}
+                        loading={submitting}
+                        onClick={handleCollectionInstall}
+                        disabled={!canUseGame || collectionPreview.children.length === 0}
+                      >
+                        Install collection
+                      </Button>
+                    </Stack>
+                  ) : null}
+                </Stack>
+              ) : null}
             </Stack>
           </Card>
         </ServerCan>
@@ -298,7 +549,7 @@ export default function WorkshopPage() {
               <Table.Tbody>
                 {jobs.map((job) => (
                   <Table.Tr key={job.id}>
-                    <Table.Td>{job.title ?? job.workshopId}</Table.Td>
+                    <Table.Td>{job.title ?? (job.workshopId || job.id)}</Table.Td>
                     <Table.Td>{job.fileName ?? '-'}</Table.Td>
                     <Table.Td>
                       <Badge color={stateColor(job.state)}>{job.state}</Badge>
@@ -306,13 +557,7 @@ export default function WorkshopPage() {
                     </Table.Td>
                     <Table.Td align='right'>
                       <ServerCan action='workshop.install'>
-                        <ActionIcon
-                          color='red'
-                          variant='subtle'
-                          aria-label='Remove recent download'
-                          title='Remove recent download'
-                          onClick={() => handleDeleteJob(job)}
-                        >
+                        <ActionIcon color='red' variant='subtle' aria-label='Remove recent download' title='Remove recent download' onClick={() => handleDeleteJob(job)}>
                           <FontAwesomeIcon icon={faTrash} />
                         </ActionIcon>
                       </ServerCan>

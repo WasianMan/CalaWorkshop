@@ -337,6 +337,50 @@ pub async fn update_installed_title(
     Ok(())
 }
 
+pub async fn get_cache_json(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    namespace: &str,
+    cache_key: &str,
+) -> Result<Option<serde_json::Value>, sqlx::Error> {
+    let row = sqlx::query(
+        r#"
+        SELECT value
+        FROM dev_wasian_calaworkshop_steam_cache
+        WHERE namespace = $1 AND cache_key = $2 AND expires_at > now()
+        "#,
+    )
+    .bind(namespace)
+    .bind(cache_key)
+    .fetch_optional(db)
+    .await?;
+    Ok(row.map(|row| row.get("value")))
+}
+
+pub async fn put_cache_json(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    namespace: &str,
+    cache_key: &str,
+    value: &serde_json::Value,
+    ttl_seconds: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO dev_wasian_calaworkshop_steam_cache
+            (namespace, cache_key, value, expires_at)
+        VALUES ($1, $2, $3, now() + ($4::text || ' seconds')::interval)
+        ON CONFLICT (namespace, cache_key)
+        DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at, updated_at = now()
+        "#,
+    )
+    .bind(namespace)
+    .bind(cache_key)
+    .bind(value)
+    .bind(ttl_seconds)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 fn ext_is(file: &str, ext: &str) -> bool {
     file.rsplit('.')
         .next()

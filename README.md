@@ -21,6 +21,7 @@ games can be added through JSON presets.
 ## What Works
 
 - Paste Workshop URL/ID and install through Wings `files/pull`
+- Search/explore Workshop items and preview collections from the server Workshop tab
 - Persistent download history and installed-item tracking
 - Managed/imported/unmanaged installed-content list
 - Precise uninstall of files tracked by this extension
@@ -36,8 +37,7 @@ games can be added through JSON presets.
 - Per-user Steam account linking with Steam Guard/mobile-auth support
 - Helper and SteamCMD diagnostics in the admin config page
 
-Search UI, collection expansion, and richer update/reinstall workflows are still on
-the roadmap.
+Richer update/reinstall workflows are still on the roadmap.
 
 ## How It Works
 
@@ -151,7 +151,7 @@ install. See [CONTRIBUTING.md](./CONTRIBUTING.md) for more detail.
 
 ## Version
 
-Current release: **v0.2.5**
+Current release: **v0.2.6-alpha.1**
 Changelog: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Screenshots

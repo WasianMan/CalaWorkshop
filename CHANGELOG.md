@@ -3,6 +3,21 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
+## [0.2.6-alpha.1] - 2026-06-08
+
+### Added
+- Workshop search/explore UI backed by Steam `IPublishedFileService/QueryFiles`,
+  including previews, sort modes, subscriptions, file sizes, vote counts, and star
+  ratings.
+- Collection preview and install flow backed by Steam
+  `ISteamRemoteStorage/GetCollectionDetails`. Collection children are queued as
+  ordinary download jobs so existing install/uninstall tracking still applies.
+- PostgreSQL-backed Steam metadata cache for search and collection responses.
+
+### Changed
+- The Workshop page now starts with no game selected unless app-id detection is
+  high/medium confidence. Low-confidence detection is shown as a hint instead of
+  silently defaulting to the first preset.
 
 ## [0.2.5] - 2026-06-08
 
@@ -183,7 +198,7 @@ All notable changes to this project are documented here. Format loosely follows
 - CI (fmt/clippy/check + archive packaging) and tag-driven releases (image + `.c7s.zip`).
 
 ### Known limitations
-- Workshop **search** GUI is not implemented yet (paste-only).
+- At this release, Workshop **search** GUI was not implemented yet (paste-only).
 - Per-user ownership scoping of Steam links is scaffolded (migration table) but not
   enforced; v1 linking is a thin proxy suited to a single-admin panel.
 - Anonymous downloads only work for games Valve allows; L4D2 needs a linked account.

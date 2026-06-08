@@ -15,7 +15,8 @@ independent image published to GHCR.
 ## Install / download flow
 
 ```
-1. User pastes a Workshop URL/ID in the Workshop tab and clicks install.
+1. User selects a configured game, then pastes a Workshop URL/ID, chooses a
+   search result, or previews a collection in the Workshop tab and clicks install.
 2. Frontend → extension:  POST /api/client/servers/{server}/calaworkshop/downloads
 3. Extension → helper:    POST /download {app_id, workshop_id, account?, archive,
                           title_slug?, install_rule}
@@ -33,6 +34,13 @@ independent image published to GHCR.
                            persisted post_install == "extract", also unpack any
                            archive among the installed files)
 ```
+
+Search and collection expansion are extension-backend concerns. The frontend calls
+`GET …/calaworkshop/search` for `IPublishedFileService/QueryFiles` results and
+`POST …/calaworkshop/collections/preview` for
+`ISteamRemoteStorage/GetCollectionDetails`; collection install then creates normal
+download jobs for each child item. The helper still only knows how to download a
+single Workshop item with SteamCMD.
 
 ### Game presets & install rules
 
@@ -106,9 +114,14 @@ gated UI with `ServerCan`.
 
 - **Global settings** (helper URL, helper token, Steam Web API key, default-anonymous,
   game presets) live in the panel's extension settings store. The Steam Web API key
-  is optional and is used only for names, previews, and search metadata; SteamCMD
-  handles downloads. The two secrets are encrypted at rest via
+  is optional for direct installs but required for Workshop search. It is used only
+  for names, previews, search, and collection metadata; SteamCMD handles downloads.
+  The two secrets are encrypted at rest via
   `database.encrypt`/`decrypt` (+ base32). Presets are stored as a single serde blob.
+- **Steam API cache** lives in `dev_wasian_calaworkshop_steam_cache`. Search,
+  collection, and direct-item metadata responses are cached as JSON with short TTLs
+  so multiple panel users do not repeatedly hit Steam for the same browse data. The
+  cache stores preview URLs, not image blobs; browsers load images from Steam/CDN.
 - **Per-user data** (which panel user owns which Steam label) lives in the
   `dev_wasian_calaworkshop_steam_links` table. Each row ties a `user_uuid` + a
   user-facing `label` to an opaque `helper_label`. The helper keys its cached

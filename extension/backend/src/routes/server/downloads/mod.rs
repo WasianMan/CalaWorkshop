@@ -36,7 +36,7 @@ mod get {
     }
 }
 
-mod post {
+pub(crate) mod post {
     use axum::extract::Path;
     use serde::{Deserialize, Serialize};
     use shared::{
@@ -62,9 +62,9 @@ mod post {
     }
 
     #[derive(ToSchema, Serialize)]
-    struct Response {
-        job_id: uuid::Uuid,
-        state: String,
+    pub struct Response {
+        pub job_id: uuid::Uuid,
+        pub state: String,
     }
 
     /// Kick off a workshop download on the helper. Returns a job id to poll.
@@ -88,8 +88,32 @@ mod post {
             ));
         }
 
-        // Snapshot settings into an owned value and drop the read guard before any
-        // network I/O — holding it across helper/Steam calls can stall the panel.
+        let resp = start_download_for_item(
+            &state,
+            &permissions,
+            user.uuid,
+            server,
+            data.app_id,
+            data.workshop_id,
+            data.account.as_deref(),
+            data.archive,
+        )
+        .await?;
+
+        ApiResponse::new_serialized(resp).ok()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn start_download_for_item(
+        state: &GetState,
+        permissions: &GetPermissionManager,
+        user_uuid: uuid::Uuid,
+        server_uuid: uuid::Uuid,
+        app_id: u32,
+        workshop_id: u64,
+        account_label: Option<&str>,
+        archive: bool,
+    ) -> Result<Response, shared::response::ApiResponse> {
         let ext = {
             let settings = state.settings.get().await?;
             settings
@@ -97,10 +121,7 @@ mod post {
                 .clone()
         };
 
-        // Resolve the game preset for this app id (if any). It drives the install
-        // rule sent to the helper and the post-install behavior we persist. An
-        // unconfigured app id falls back to "mirror every file" / no post-install.
-        let preset = ext.game_presets.iter().find(|p| p.app_id == data.app_id);
+        let preset = ext.game_presets.iter().find(|p| p.app_id == app_id);
         let install_rule = crate::helper::InstallRulePayload {
             matchers: preset.map(|p| p.r#match.clone()).unwrap_or_default(),
             generated_files: preset
@@ -118,20 +139,12 @@ mod post {
             crate::settings::AuthRequirement::Default => !ext.default_anonymous,
         };
 
-        // Resolve the (optional) linked account to its opaque helper label,
-        // scoped to the calling user. A user can only download as an account they
-        // personally linked; anonymous otherwise.
-        let account = match data
-            .account
-            .as_deref()
-            .map(str::trim)
-            .filter(|a| !a.is_empty())
-        {
+        let account = match account_label.map(str::trim).filter(|a| !a.is_empty()) {
             Some(label) => {
                 permissions.has_user_permission("calaworkshop.link-steam")?;
                 crate::validation::validate_account_label(label)?;
                 let link =
-                    crate::steam_links::get_by_label(state.database.read(), user.uuid, label)
+                    crate::steam_links::get_by_label(state.database.read(), user_uuid, label)
                         .await?
                         .ok_or_else(|| {
                             ApiResponse::error(
@@ -148,16 +161,7 @@ mod post {
             None => None,
         };
 
-        let metadata = crate::steam::get_published_file_details(
-            &state.client,
-            ext.steam_api_key.as_str(),
-            data.workshop_id,
-        )
-        .await
-        .unwrap_or(crate::registry::WorkshopMetadata {
-            title: None,
-            preview_url: None,
-        });
+        let metadata = get_metadata_cached(state, ext.steam_api_key.as_str(), workshop_id).await;
         let title_slug = metadata
             .title
             .as_deref()
@@ -165,9 +169,9 @@ mod post {
             .filter(|slug| !slug.is_empty());
         let job = crate::registry::create_download(
             state.database.write(),
-            server,
-            data.app_id,
-            data.workshop_id,
+            server_uuid,
+            app_id,
+            workshop_id,
             metadata,
             post_install,
         )
@@ -179,10 +183,10 @@ mod post {
 
         let resp = match helper
             .start_download(&crate::helper::DownloadRequest {
-                app_id: data.app_id,
-                workshop_id: data.workshop_id,
+                app_id,
+                workshop_id,
                 account,
-                archive: data.archive,
+                archive,
                 title_slug,
                 install_rule,
             })
@@ -211,14 +215,13 @@ mod post {
         )
         .await?;
 
-        ApiResponse::new_serialized(Response {
+        Ok(Response {
             job_id: job.id,
             state: resp.state,
         })
-        .ok()
     }
 
-    fn slugify_title(title: &str) -> String {
+    pub fn slugify_title(title: &str) -> String {
         let mut out = String::new();
         let mut last_was_sep = false;
         for ch in title.chars().flat_map(char::to_lowercase) {
@@ -234,6 +237,40 @@ mod post {
             }
         }
         out.trim_matches('_').to_string()
+    }
+
+    async fn get_metadata_cached(
+        state: &GetState,
+        api_key: &str,
+        workshop_id: u64,
+    ) -> crate::registry::WorkshopMetadata {
+        let cache_key = workshop_id.to_string();
+        if let Ok(Some(cached)) =
+            crate::registry::get_cache_json(state.database.read(), "details", &cache_key).await
+        {
+            if let Ok(metadata) = serde_json::from_value(cached) {
+                return metadata;
+            }
+        }
+
+        let metadata =
+            crate::steam::get_published_file_details(&state.client, api_key, workshop_id)
+                .await
+                .unwrap_or(crate::registry::WorkshopMetadata {
+                    title: None,
+                    preview_url: None,
+                });
+        if let Ok(value) = serde_json::to_value(&metadata) {
+            let _ = crate::registry::put_cache_json(
+                state.database.write(),
+                "details",
+                &cache_key,
+                &value,
+                1800,
+            )
+            .await;
+        }
+        metadata
     }
 }
 

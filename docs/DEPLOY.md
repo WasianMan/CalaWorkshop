@@ -148,8 +148,9 @@ start normally. If you replace the zip while the panel is already running, resta
 1. Admin -> **Extensions -> CalaWorkshop**:
    - **Helper URL**: `http://calagopus-workshop-helper:8090`
    - **Helper token**: the same `WORKSHOP_HELPER_TOKEN`
-   - **Steam Web API key**: optional; SteamCMD handles downloads, the API key only
-     improves names/previews/search metadata
+   - **Steam Web API key**: optional for direct installs, required for Workshop
+     search/explore, and used for names/previews/collection metadata. SteamCMD
+     still handles downloads.
    - **Game presets**: Left 4 Dead 2 should point at `left4dead2/addons`;
      Garry's Mod should point at `garrysmod` and use the default GMAD extraction
      rule.

@@ -43,7 +43,8 @@ mod get {
         // further I/O (the variable lookup hits the database).
         let (presets, default_anonymous, helper_configured, steam_search_available) = {
             let settings = state.settings.get().await?;
-            let ext: &crate::settings::ExtensionSettingsData = settings.find_extension_settings()?;
+            let ext: &crate::settings::ExtensionSettingsData =
+                settings.find_extension_settings()?;
             (
                 ext.game_presets.clone(),
                 ext.default_anonymous,
@@ -99,9 +100,12 @@ mod get {
         let mut high: BTreeSet<u32> = BTreeSet::new();
         let mut low: BTreeSet<u32> = BTreeSet::new();
 
-        if let Ok(vars) =
-            ServerVariable::all_by_server_uuid_egg_uuid(&state.database, server.uuid, server.egg.uuid)
-                .await
+        if let Ok(vars) = ServerVariable::all_by_server_uuid_egg_uuid(
+            &state.database,
+            server.uuid,
+            server.egg.uuid,
+        )
+        .await
         {
             for var in &vars {
                 let Ok(value) = var.value.trim().parse::<u32>() else {
@@ -111,9 +115,15 @@ mod get {
                     continue;
                 }
                 let name = var.variable.env_variable.to_ascii_uppercase();
-                if ["APP_ID", "APPID", "STEAMCMD_APPID", "SRCDS_APPID", "STEAM_APP_ID"]
-                    .iter()
-                    .any(|needle| name.contains(needle))
+                if [
+                    "APP_ID",
+                    "APPID",
+                    "STEAMCMD_APPID",
+                    "SRCDS_APPID",
+                    "STEAM_APP_ID",
+                ]
+                .iter()
+                .any(|needle| name.contains(needle))
                 {
                     high.insert(value);
                 } else {

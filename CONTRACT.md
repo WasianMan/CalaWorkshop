@@ -5,6 +5,10 @@ directly. It asks the **helper** to download Steam Workshop items, then tells Wi
 to `files/pull` the result into the server. This file is the single source of truth
 for the wire format between the two.
 
+Workshop search and collection expansion are **extension API** features backed by
+Steam Web API calls; they do not add helper endpoints. Collection installs expand
+to ordinary `POST /download` item jobs.
+
 ## Transport & auth
 
 - Helper listens on `WORKSHOP_HELPER_BIND` (default `0.0.0.0:8090`).

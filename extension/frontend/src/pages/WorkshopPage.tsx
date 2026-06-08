@@ -24,7 +24,7 @@ import { httpErrorToHuman } from '@/api/axios.ts';
 import { installCollection, previewCollection, type CollectionPreview } from '../api/collections.ts';
 import deleteDownload from '../api/deleteDownload.ts';
 import deleteInstalled from '../api/deleteInstalled.ts';
-import getConfig, { type WorkshopConfig } from '../api/getConfig.ts';
+import getConfig, { type GamePreset, type WorkshopConfig } from '../api/getConfig.ts';
 import getJob from '../api/getJob.ts';
 import importInstalled from '../api/importInstalled.ts';
 import installJob from '../api/installJob.ts';
@@ -79,6 +79,14 @@ function stars(value?: number | null): string {
   return `${value.toFixed(1)} / 5`;
 }
 
+function defaultSearchTags(appId?: number): string[] {
+  return appId === 4000 ? ['Addon'] : [];
+}
+
+function requiresAccountForPreset(preset: GamePreset, defaultAnonymous: boolean): boolean {
+  return preset.auth === 'account' || ((preset.auth ?? 'default') === 'default' && !defaultAnonymous);
+}
+
 export default function WorkshopPage() {
   const server = useServerStore((s) => s.server);
   const { addToast } = useToast();
@@ -131,9 +139,12 @@ export default function WorkshopPage() {
         if (detectedIdx >= 0) {
           setPresetIndex(detectedIdx);
           setInstallPath(cfg.presets[detectedIdx].installPath);
+          setSelectedTags(defaultSearchTags(cfg.presets[detectedIdx].appId));
+          if (requiresAccountForPreset(cfg.presets[detectedIdx], cfg.defaultAnonymous)) setAccount(null);
         } else {
           setPresetIndex(null);
           setInstallPath('');
+          setSelectedTags([]);
         }
         if (cfg.canLinkSteam) {
           listAccounts()
@@ -289,6 +300,9 @@ export default function WorkshopPage() {
   }, [mode, preset?.appId, searchQuery, searchSort, searchFileType, selectedTags.join('|'), config?.steamSearchAvailable]);
 
   const toggleTag = (tag: string) => {
+    if (preset?.appId === 4000 && searchFileType === 'item' && tag.toLowerCase() === 'addon') {
+      return;
+    }
     setSelectedTags((prev) => (prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag]));
   };
 
@@ -296,7 +310,7 @@ export default function WorkshopPage() {
     setSearchQuery('');
     setSearchSort('popular');
     setSearchFileType('item');
-    setSelectedTags([]);
+    setSelectedTags(defaultSearchTags(preset?.appId));
     setShowAllTags(false);
   };
 
@@ -398,36 +412,44 @@ export default function WorkshopPage() {
   const stateColor = (state: string) =>
     state === 'installed' ? 'green' : state === 'failed' ? 'red' : state === 'ready' || state === 'installing' ? 'blue' : 'gray';
 
-  const renderWorkshopCard = (item: WorkshopSearchItem, action: 'install' | 'collection' | 'none' = 'install') => (
-    <Card withBorder radius='md' padding='sm' key={item.publishedFileId}>
-      <Group align='flex-start' wrap='nowrap'>
-        {item.previewUrl ? <Image src={item.previewUrl} w={96} h={72} fit='cover' radius='sm' /> : null}
-        <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
-          <Text fw={600} lineClamp={1}>{item.title}</Text>
-          <Text size='xs' c='dimmed'>
-            {stars(item.stars)}{item.voteCount ? ` · ${item.voteCount} votes` : ''}{item.subscriptions ? ` · ${item.subscriptions.toLocaleString()} subs` : ''}{item.fileSize ? ` · ${formatBytes(item.fileSize)}` : ''}
-          </Text>
-          {item.tags.length > 0 ? (
-            <Group gap={4}>
-              {item.tags.slice(0, 5).map((tag) => (
-                <Badge key={tag} size='xs' variant='light'>{tag}</Badge>
-              ))}
-            </Group>
+  const renderWorkshopCard = (item: WorkshopSearchItem, action: 'install' | 'collection' | 'none' = 'install') => {
+    const installable = !(preset?.appId === 4000 && !item.tags.some((tag) => tag.toLowerCase() === 'addon'));
+    return (
+      <Card withBorder radius='md' padding='sm' key={item.publishedFileId}>
+        <Group align='flex-start' wrap='nowrap'>
+          {item.previewUrl ? <Image src={item.previewUrl} w={96} h={72} fit='cover' radius='sm' /> : null}
+          <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
+            <Text fw={600} lineClamp={1}>{item.title}</Text>
+            <Text size='xs' c='dimmed'>
+              {stars(item.stars)}{item.voteCount ? ` · ${item.voteCount} votes` : ''}{item.subscriptions ? ` · ${item.subscriptions.toLocaleString()} subs` : ''}{item.fileSize ? ` · ${formatBytes(item.fileSize)}` : ''}
+            </Text>
+            {item.tags.length > 0 ? (
+              <Group gap={4}>
+                {item.tags.slice(0, 5).map((tag) => (
+                  <Badge key={tag} size='xs' variant='light'>{tag}</Badge>
+                ))}
+              </Group>
+            ) : null}
+            {item.shortDescription ? <Text size='xs' c='dimmed' lineClamp={2}>{item.shortDescription}</Text> : null}
+          </Stack>
+          {action === 'install' ? (
+            <Button
+              size='xs'
+              leftSection={<FontAwesomeIcon icon={faDownload} />}
+              onClick={() => void startAndPoll(item.publishedFileId, item.title)}
+              disabled={!installable}
+            >
+              {installable ? 'Install' : 'Not addon'}
+            </Button>
+          ) : action === 'collection' ? (
+            <Button size='xs' leftSection={<FontAwesomeIcon icon={faSearch} />} onClick={() => void previewCollectionId(item.publishedFileId)}>
+              Preview
+            </Button>
           ) : null}
-          {item.shortDescription ? <Text size='xs' c='dimmed' lineClamp={2}>{item.shortDescription}</Text> : null}
-        </Stack>
-        {action === 'install' ? (
-          <Button size='xs' leftSection={<FontAwesomeIcon icon={faDownload} />} onClick={() => void startAndPoll(item.publishedFileId, item.title)}>
-            Install
-          </Button>
-        ) : action === 'collection' ? (
-          <Button size='xs' leftSection={<FontAwesomeIcon icon={faSearch} />} onClick={() => void previewCollectionId(item.publishedFileId)}>
-            Preview
-          </Button>
-        ) : null}
-      </Group>
-    </Card>
-  );
+        </Group>
+      </Card>
+    );
+  };
 
   return (
     <ServerContentContainer title='Workshop'>
@@ -457,7 +479,11 @@ export default function WorkshopPage() {
                     }
                     const idx = Number(v);
                     setPresetIndex(idx);
-                    if (config?.presets[idx]) setInstallPath(config.presets[idx].installPath);
+                    if (config?.presets[idx]) {
+                      setInstallPath(config.presets[idx].installPath);
+                      setSelectedTags(defaultSearchTags(config.presets[idx].appId));
+                      if (requiresAccountForPreset(config.presets[idx], config.defaultAnonymous)) setAccount(null);
+                    }
                   }}
                 />
                 <TextInput label='Install path' value={installPath} onChange={(e) => setInstallPath(e.currentTarget.value)} />
@@ -468,6 +494,18 @@ export default function WorkshopPage() {
                 <Text size='xs' c='dimmed'>
                   Auto-selected from this server&apos;s game ({config.detectedAppIdConfidence} confidence). Change it above if needed.
                 </Text>
+              ) : null}
+              {config?.canLinkSteam ? (
+                <Select
+                  label='Steam account'
+                  data={[
+                    ...(accountRequired ? [] : [{ value: '', label: 'Anonymous' }]),
+                    ...accounts.map((a) => ({ value: a, label: a })),
+                  ]}
+                  value={accountRequired ? account : account ?? ''}
+                  onChange={(v) => setAccount(v ? v : null)}
+                  w={240}
+                />
               ) : null}
 
               <SegmentedControl
@@ -489,18 +527,6 @@ export default function WorkshopPage() {
                     onChange={(e) => setWorkshopInput(e.currentTarget.value)}
                   />
                   <Group align='end'>
-                    {config?.canLinkSteam ? (
-                      <Select
-                        label='Steam account'
-                        data={[
-                          ...(accountRequired ? [] : [{ value: '', label: 'Anonymous' }]),
-                          ...accounts.map((a) => ({ value: a, label: a })),
-                        ]}
-                        value={accountRequired ? account : account ?? ''}
-                        onChange={(v) => setAccount(v ? v : null)}
-                        w={240}
-                      />
-                    ) : null}
                     <Switch label='Archive whole item' checked={archive} onChange={(e) => setArchive(e.currentTarget.checked)} />
                     <Button
                       leftSection={<FontAwesomeIcon icon={faDownload} />}
@@ -543,8 +569,9 @@ export default function WorkshopPage() {
                     <SegmentedControl
                       value={searchFileType}
                       onChange={(v) => {
-                        setSearchFileType(v as WorkshopFileType);
-                        setSelectedTags([]);
+                        const nextType = v as WorkshopFileType;
+                        setSearchFileType(nextType);
+                        setSelectedTags(nextType === 'item' ? defaultSearchTags(preset?.appId) : []);
                         setShowAllTags(false);
                       }}
                       data={[

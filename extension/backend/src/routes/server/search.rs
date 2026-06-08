@@ -61,7 +61,7 @@ async fn search(
     let trimmed_query = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty());
     let sort = crate::steam::SearchSort::from_param(query.sort.as_deref(), trimmed_query.is_some());
     let file_type = crate::steam::MatchingFileType::from_param(query.file_type.as_deref());
-    let tags: Vec<String> = query
+    let mut tags: Vec<String> = query
         .tags
         .as_deref()
         .unwrap_or("")
@@ -71,6 +71,12 @@ async fn search(
         .take(8)
         .map(str::to_string)
         .collect();
+    if query.app_id == 4000
+        && matches!(file_type, crate::steam::MatchingFileType::Items)
+        && !tags.iter().any(|tag| tag.eq_ignore_ascii_case("Addon"))
+    {
+        tags.push("Addon".to_string());
+    }
     let cache_key = format!(
         "app={};q={};sort={};cursor={};type={};tags={}",
         query.app_id,

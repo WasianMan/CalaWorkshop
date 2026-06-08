@@ -22,6 +22,10 @@ All notable changes to this project are documented here. Format loosely follows
 - Fixed the 0.2.6-alpha.1 backend build error in Steam metadata preview handling.
 - Fixed Workshop search using the wrong HTTP method for Steam `QueryFiles`, and
   switched results to a compact thumbnail list for easier browsing.
+- GMod item search now filters to Workshop `Addon` results so search installs
+  follow the tested GMAD extraction path instead of surfacing saves/demos.
+- The Steam account picker is now shared across direct, search, and collection
+  installs, so account-required games like L4D2 do not require switching tabs.
 
 ## [0.2.5] - 2026-06-08
 

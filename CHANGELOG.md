@@ -20,6 +20,8 @@ All notable changes to this project are documented here. Format loosely follows
   high/medium confidence. Low-confidence detection is shown as a hint instead of
   silently defaulting to the first preset.
 - Fixed the 0.2.6-alpha.1 backend build error in Steam metadata preview handling.
+- Fixed Workshop search using the wrong HTTP method for Steam `QueryFiles`, and
+  switched results to a compact thumbnail list for easier browsing.
 
 ## [0.2.5] - 2026-06-08
 

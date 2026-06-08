@@ -280,33 +280,39 @@ pub async fn query_files(
     file_type: MatchingFileType,
     tags: &[String],
 ) -> Result<SearchResponse, anyhow::Error> {
-    let mut form = vec![
-        ("key".to_string(), api_key.to_string()),
-        ("format".to_string(), "json".to_string()),
-        ("query_type".to_string(), sort.query_type().to_string()),
-        ("creator_appid".to_string(), app_id.to_string()),
-        ("appid".to_string(), app_id.to_string()),
-        ("numperpage".to_string(), "24".to_string()),
-        ("filetype".to_string(), file_type.value().to_string()),
-        ("return_vote_data".to_string(), "1".to_string()),
-        ("return_tags".to_string(), "1".to_string()),
-        ("return_previews".to_string(), "1".to_string()),
-        ("return_children".to_string(), "1".to_string()),
-        ("tagcount".to_string(), tags.len().to_string()),
-    ];
-    for (idx, tag) in tags.iter().enumerate() {
-        form.push((format!("tags[{idx}]"), tag.to_string()));
-    }
+    let mut input = serde_json::json!({
+        "query_type": sort.query_type(),
+        "cursor": cursor.map(str::trim).filter(|cursor| !cursor.is_empty()).unwrap_or("*"),
+        "creator_appid": app_id,
+        "appid": app_id,
+        "numperpage": 24,
+        "filetype": file_type.value(),
+        "return_vote_data": true,
+        "return_tags": true,
+        "return_previews": true,
+        "return_children": true,
+        "return_short_description": true,
+    });
     if let Some(q) = query.map(str::trim).filter(|q| !q.is_empty()) {
-        form.push(("search_text".to_string(), q.to_string()));
+        input["search_text"] = serde_json::Value::String(q.to_string());
     }
-    if let Some(cursor) = cursor.map(str::trim).filter(|cursor| !cursor.is_empty()) {
-        form.push(("cursor".to_string(), cursor.to_string()));
+    if !tags.is_empty() {
+        input["requiredtags"] = serde_json::Value::String(tags.join(","));
+        input["match_all_tags"] = serde_json::Value::Bool(false);
+    }
+    if matches!(sort, SearchSort::Trending) {
+        input["days"] = serde_json::Value::Number(7.into());
+        input["include_recent_votes_only"] = serde_json::Value::Bool(false);
     }
 
+    let input_json = input.to_string();
     let response = client
-        .post(QUERY_FILES_URL)
-        .form(&form)
+        .get(QUERY_FILES_URL)
+        .query(&[
+            ("key", api_key),
+            ("format", "json"),
+            ("input_json", input_json.as_str()),
+        ])
         .timeout(STEAM_TIMEOUT)
         .send()
         .await?

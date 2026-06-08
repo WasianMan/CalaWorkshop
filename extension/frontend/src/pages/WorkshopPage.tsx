@@ -400,31 +400,32 @@ export default function WorkshopPage() {
 
   const renderWorkshopCard = (item: WorkshopSearchItem, action: 'install' | 'collection' | 'none' = 'install') => (
     <Card withBorder radius='md' padding='sm' key={item.publishedFileId}>
-      <Stack gap='xs'>
-        {item.previewUrl ? <Image src={item.previewUrl} height={120} fit='cover' radius='sm' /> : null}
-        <Text fw={600} lineClamp={2}>{item.title}</Text>
-        <Text size='xs' c='dimmed'>
-          {stars(item.stars)}{item.voteCount ? ` · ${item.voteCount} votes` : ''}{item.subscriptions ? ` · ${item.subscriptions.toLocaleString()} subs` : ''}
-        </Text>
-        {item.fileSize ? <Text size='xs' c='dimmed'>{formatBytes(item.fileSize)}</Text> : null}
-        {item.tags.length > 0 ? (
-          <Group gap={4}>
-            {item.tags.slice(0, 4).map((tag) => (
-              <Badge key={tag} size='xs' variant='light'>{tag}</Badge>
-            ))}
-          </Group>
-        ) : null}
-        {item.shortDescription ? <Text size='xs' c='dimmed' lineClamp={3}>{item.shortDescription}</Text> : null}
+      <Group align='flex-start' wrap='nowrap'>
+        {item.previewUrl ? <Image src={item.previewUrl} w={96} h={72} fit='cover' radius='sm' /> : null}
+        <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
+          <Text fw={600} lineClamp={1}>{item.title}</Text>
+          <Text size='xs' c='dimmed'>
+            {stars(item.stars)}{item.voteCount ? ` · ${item.voteCount} votes` : ''}{item.subscriptions ? ` · ${item.subscriptions.toLocaleString()} subs` : ''}{item.fileSize ? ` · ${formatBytes(item.fileSize)}` : ''}
+          </Text>
+          {item.tags.length > 0 ? (
+            <Group gap={4}>
+              {item.tags.slice(0, 5).map((tag) => (
+                <Badge key={tag} size='xs' variant='light'>{tag}</Badge>
+              ))}
+            </Group>
+          ) : null}
+          {item.shortDescription ? <Text size='xs' c='dimmed' lineClamp={2}>{item.shortDescription}</Text> : null}
+        </Stack>
         {action === 'install' ? (
           <Button size='xs' leftSection={<FontAwesomeIcon icon={faDownload} />} onClick={() => void startAndPoll(item.publishedFileId, item.title)}>
             Install
           </Button>
         ) : action === 'collection' ? (
           <Button size='xs' leftSection={<FontAwesomeIcon icon={faSearch} />} onClick={() => void previewCollectionId(item.publishedFileId)}>
-            Preview collection
+            Preview
           </Button>
         ) : null}
-      </Stack>
+      </Group>
     </Card>
   );
 
@@ -591,9 +592,9 @@ export default function WorkshopPage() {
                   ) : null}
                   {searchError ? <Alert color='red'>{searchError}</Alert> : null}
                   {searchLoading && searchResults.length === 0 ? <Loader size='sm' /> : null}
-                  <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
+                  <Stack gap='xs'>
                     {searchResults.map((item) => renderWorkshopCard(item, searchFileType === 'collection' ? 'collection' : 'install'))}
-                  </SimpleGrid>
+                  </Stack>
                   {nextCursor ? (
                     <Button variant='subtle' loading={searchLoading} onClick={() => void runSearch(nextCursor)} disabled={!canUseGame}>
                       Load more

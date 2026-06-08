@@ -14,9 +14,9 @@ through SteamCMD, and install the selected files onto the game server through Wi
 Built-in presets currently cover **Left 4 Dead 2** and **Garry's Mod**; other Steam
 games can be added through JSON presets.
 
-> **Status: alpha.** This is a side project I use on my own server and share in
-> case it helps others. It is functional end-to-end, but expect rough edges and
-> occasional breaking changes while it settles. No warranty; see [LICENSE](./LICENSE).
+> **Status: early release.** CalaWorkshop is functional end-to-end and used on a
+> live server, but it is still young. Expect rough edges and occasional changes
+> while the project settles. No warranty; see [LICENSE](./LICENSE).
 
 ## What Works
 
@@ -85,7 +85,7 @@ management may still need a purpose-built preset pattern.
 Use the public release artifacts:
 
 - `ghcr.io/wasianman/calaworkshop-helper:<version>` or `:latest`
-- `dev_wasian_calaworkshop.c7s.zip` from the latest
+- `CalaWorkshop-v<version>.c7s.zip` from the latest
   [GitHub Release](https://github.com/WasianMan/CalaWorkshop/releases)
 
 Short version:
@@ -95,16 +95,19 @@ Short version:
 3. Add the `calagopus-workshop-helper` service from
    [compose.aio.example.yml](./compose.aio.example.yml).
 4. Allow Wings to pull from the helper's private Docker subnet.
-5. Put `dev_wasian_calaworkshop.c7s.zip` in `/app/extensions`.
-6. Redeploy/restart and configure the helper URL/token in the admin panel.
+5. Install `CalaWorkshop-v<version>.c7s.zip` from the Calagopus Extensions page,
+   or place it in `/app/extensions`.
+6. If the panel does not rebuild extensions automatically after upload, click
+   **Rebuild Extensions** on the Extensions page, or restart/redeploy `web`.
+7. Configure the helper URL/token in the admin panel.
 
 Detailed AIO/Coolify steps: [docs/DEPLOY.md](./docs/DEPLOY.md)
 
 ## Steam Notes
 
 - SteamCMD handles downloads.
-- A Steam Web API key is optional and only improves metadata like titles, previews,
-  and future search results.
+- A Steam Web API key is optional for direct installs and required for Workshop
+  search/explore. It is used for titles, previews, search, and collection metadata.
 - Anonymous downloads work only for games Steam allows. **Left 4 Dead 2 generally
   requires a linked Steam account that owns the game.**
 - Linked accounts are per panel user. The helper stores only SteamCMD session files
@@ -117,7 +120,7 @@ Detailed AIO/Coolify steps: [docs/DEPLOY.md](./docs/DEPLOY.md)
 
 ```text
 calaworkshop/
-├── extension/              # packaged into dev_wasian_calaworkshop.c7s.zip
+├── extension/              # packaged into CalaWorkshop-v<version>.c7s.zip
 │   ├── backend/            # Rust extension routes/settings/helper client
 │   ├── frontend/           # React Workshop, Steam Link, and admin pages
 │   └── migrations/         # extension DB migrations
@@ -152,7 +155,7 @@ install. See [CONTRIBUTING.md](./CONTRIBUTING.md) for more detail.
 
 ## Version
 
-Current release: **v0.2.6-alpha.1**
+Current release: **v0.2.6**
 Changelog: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Screenshots

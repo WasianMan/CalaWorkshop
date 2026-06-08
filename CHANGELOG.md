@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
-## [0.2.6-alpha.1] - 2026-06-08
+## [0.2.6] - 2026-06-08
 
 ### Added
 - Workshop search/explore UI backed by Steam `IPublishedFileService/QueryFiles`,
@@ -19,7 +19,7 @@ All notable changes to this project are documented here. Format loosely follows
 - The Workshop page now starts with no game selected unless app-id detection is
   high/medium confidence. Low-confidence detection is shown as a hint instead of
   silently defaulting to the first preset.
-- Fixed the 0.2.6-alpha.1 backend build error in Steam metadata preview handling.
+- Fixed the prerelease backend build error in Steam metadata preview handling.
 - Fixed Workshop search using the wrong HTTP method for Steam `QueryFiles`, and
   switched results to a compact thumbnail list for easier browsing.
 - GMod item search now filters to Workshop `Addon` results so search installs
@@ -28,6 +28,7 @@ All notable changes to this project are documented here. Format loosely follows
   installs, so account-required games like L4D2 do not require switching tabs.
 - Search results now mark already-installed Workshop items and disable reinstall
   from the search list. Result count is selectable at 5, 10, 15, or 25 per page.
+- Extension release archives are now named `CalaWorkshop-v<version>.c7s.zip`.
 
 ## [0.2.5] - 2026-06-08
 

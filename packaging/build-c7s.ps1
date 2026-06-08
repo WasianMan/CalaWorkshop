@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Package the extension/ folder into dev_wasian_calaworkshop.c7s.zip.
+  Package the extension/ folder into a versioned CalaWorkshop .c7s.zip archive.
 
 .DESCRIPTION
   Produces a Calagopus extension archive whose layout matches what the panel's
@@ -24,13 +24,19 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $root = Split-Path -Parent $PSScriptRoot
 $source = Join-Path $root 'extension'
 $distDir = Join-Path $root 'dist'
-$outFile = Join-Path $distDir 'dev_wasian_calaworkshop.c7s.zip'
+$backendCargo = Join-Path $source 'backend/Cargo.toml'
+
+if (-not (Test-Path $backendCargo)) { throw "extension backend Cargo.toml missing at $backendCargo" }
+$versionLine = Select-String -Path $backendCargo -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
+if (-not $versionLine) { throw 'extension backend version missing' }
+$version = $versionLine.Matches[0].Groups[1].Value
+$outFile = Join-Path $distDir "CalaWorkshop-v$version.c7s.zip"
 
 if (-not (Test-Path $source)) { throw "extension/ not found at $source" }
 if (-not (Test-Path (Join-Path $source 'Metadata.toml'))) { throw 'extension/Metadata.toml missing' }
 
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
-if (Test-Path $outFile) { Remove-Item $outFile -Force }
+Get-ChildItem -Path $distDir -Filter '*.c7s.zip' -File | Remove-Item -Force
 
 # Paths excluded from the archive (build output, deps, vcs noise).
 $excludeSegments = @('node_modules', 'target', '.git', 'dist')

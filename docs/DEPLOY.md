@@ -4,7 +4,7 @@ How to run calaworkshop on a live Calagopus AIO install. The examples assume
 Coolify or plain `docker compose`, and use the public release artifacts:
 
 - Helper image: `ghcr.io/wasianman/calaworkshop-helper:<version>` or `:latest`
-- Extension archive: `dev_wasian_calaworkshop.c7s.zip` from the GitHub Release
+- Extension archive: `CalaWorkshop-v<version>.c7s.zip` from the GitHub Release
 
 ## Prerequisites
 
@@ -122,15 +122,21 @@ base config `AIO_BASE_WINGS_CONFIGURATION` points at.
 
 ## 4. Install the Extension Archive
 
-Download `dev_wasian_calaworkshop.c7s.zip` from the GitHub Release and place it in
-the host path mounted to `/app/extensions`:
+Download `CalaWorkshop-v<version>.c7s.zip` from the GitHub Release. You can either
+upload it from the Calagopus **Extensions** page, or place it in the host path
+mounted to `/app/extensions`:
 
 ```bash
 mkdir -p /data/calagopus/build/extensions
-cp dev_wasian_calaworkshop.c7s.zip /data/calagopus/build/extensions/
+cp CalaWorkshop-v0.2.6.c7s.zip /data/calagopus/build/extensions/
 ```
 
-## 5. Deploy or Restart
+If you upload through the Extensions page and the panel does not rebuild
+automatically, click **Rebuild Extensions** on that page. If you install by
+copying into `/app/extensions`, restart/redeploy `web` so the heavy panel compiles
+the extension and runs migrations.
+
+## 5. Rebuild Extensions or Restart
 
 ```bash
 docker compose pull calagopus-workshop-helper
@@ -140,8 +146,9 @@ docker compose logs -f web
 
 In Coolify, redeploy the compose resource instead. Watch the `web` logs: the heavy
 panel should detect the `.c7s.zip`, compile the extension, run migrations, and
-start normally. If you replace the zip while the panel is already running, restart
-`web` to pick it up.
+start normally. If you uploaded the archive through the Extensions page, the
+**Rebuild Extensions** button is usually enough; restart `web` only if the rebuild
+does not pick up the new archive or you copied the zip into the mounted directory.
 
 ## 6. Configure Calaworkshop
 
@@ -165,12 +172,17 @@ start normally. If you replace the zip while the panel is already running, resta
 
 ## Updating
 
-- Pull the new public helper image and redeploy/restart the helper.
-- Replace `dev_wasian_calaworkshop.c7s.zip` in `/app/extensions`.
-- Restart `web` so the heavy panel recompiles the extension and runs migrations.
+- If the release includes helper changes, pull the new public helper image and
+  redeploy/restart the helper.
+- Upload the new `CalaWorkshop-v<version>.c7s.zip` in the Extensions page, or
+  replace it in `/app/extensions`.
+- Click **Rebuild Extensions** if the panel does not rebuild automatically, or
+  restart `web` if you updated the mounted file directly.
 
-Update the helper image and `.c7s.zip` together. The helper/extension HTTP contract
-can change between releases.
+When a release notes helper changes, update the helper image and `.c7s.zip`
+together. The helper/extension HTTP contract can change between releases. For
+documentation-only or extension-only releases, the helper can stay on the existing
+image.
 
 ## Reverting
 

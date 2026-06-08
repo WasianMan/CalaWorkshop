@@ -2,7 +2,7 @@
 name = "dev_wasian_calaworkshop"
 description = "Steam Workshop downloader for Calagopus — paste or search Workshop items and install them onto a server via SteamCMD + Wings."
 authors = ["wasian"]
-version = "0.2.6-alpha.1"
+version = "0.2.6"
 edition = { workspace = true }
 
 [dependencies]

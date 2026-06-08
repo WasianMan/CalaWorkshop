@@ -35,6 +35,7 @@ function advancedJson(p: GamePreset): string {
       auth: p.auth ?? 'default',
       match: p.match ?? [],
       generatedFiles: p.generatedFiles ?? [],
+      extractFiles: p.extractFiles ?? [],
       scan: p.scan ?? [],
       postInstall: p.postInstall ?? 'none',
     },
@@ -101,6 +102,7 @@ export default function ConfigurationPage() {
         auth?: string;
         match?: unknown;
         generatedFiles?: unknown;
+        extractFiles?: unknown;
         scan?: unknown;
         postInstall?: string;
       };
@@ -138,6 +140,22 @@ export default function ConfigurationPage() {
         }
         generatedFiles.push({ path: g.path, content: g.content });
       }
+      const rawExtractFiles = Array.isArray(adv.extractFiles) ? adv.extractFiles : [];
+      const extractFiles: { format: string; glob: string; to: string }[] = [];
+      for (const e of rawExtractFiles as Array<{ format?: unknown; glob?: unknown; to?: unknown }>) {
+        if (
+          typeof e?.format !== 'string' ||
+          !e.format.trim() ||
+          typeof e.glob !== 'string' ||
+          !e.glob.trim() ||
+          typeof e.to !== 'string' ||
+          !e.to.trim()
+        ) {
+          addToast(`Preset ${label}: every extractFiles entry needs "format", "glob", and "to" strings`, 'error');
+          return;
+        }
+        extractFiles.push({ format: e.format, glob: e.glob, to: e.to });
+      }
       const rawScan = Array.isArray(adv.scan) ? adv.scan : [];
       const scan: { path: string; extensions?: string[]; glob?: string }[] = [];
       for (const s of rawScan as Array<{ path?: unknown; extensions?: unknown; glob?: unknown }>) {
@@ -159,6 +177,7 @@ export default function ConfigurationPage() {
         auth: auth as GamePreset['auth'],
         match,
         generatedFiles,
+        extractFiles,
         scan,
         postInstall: postInstall as GamePreset['postInstall'],
       });
@@ -312,7 +331,7 @@ export default function ConfigurationPage() {
               {openAdvanced[index] ? (
                 <Textarea
                   label='Install rule'
-                  description='auth: default | anonymous | account · match: [{ "glob", "rename"? }] · generatedFiles: [{ "path", "content" }] · scan: [{ "path", "extensions"? }] · postInstall: none | extract. Tokens: {workshop_id} {app_id} {ext} {basename} {title_slug}'
+                  description='auth: default | anonymous | account · match: [{ "glob", "rename"? }] · extractFiles: [{ "format", "glob", "to" }] · generatedFiles: [{ "path", "content" }] · scan: [{ "path", "extensions"? }] · postInstall: none | extract. Tokens: {workshop_id} {app_id} {ext} {basename} {title_slug}'
                   value={advanced[index] ?? ''}
                   onChange={(v) =>
                     setAdvanced((prev) => prev.map((t, i) => (i === index ? v.currentTarget.value : t)))

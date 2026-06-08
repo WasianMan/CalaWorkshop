@@ -42,6 +42,13 @@ Request:
       { "glob": "*.vpk|*_legacy.bin", "rename": "{workshop_id}.vpk" },
       { "glob": "*_legacy.{jpg,jpeg,png}", "rename": "{workshop_id}.{ext}" }
     ],
+    "extract_files": [
+      {
+        "format": "gma",
+        "glob": "*.gma|*_legacy.bin",
+        "to": "addons/{title_slug}_{workshop_id}"
+      }
+    ],
     "generated_files": [
       {
         "path": "lua/autorun/server/cala_workshop_{workshop_id}.lua",
@@ -56,15 +63,18 @@ The helper has three install modes, kept deliberately distinct:
 1. `archive: true` → zip the whole downloaded folder as-is.
 2. `install_rule.match` non-empty → select files by glob (first match wins) and
    map each to its destination via the optional `rename` template.
-3. `install_rule` absent or `match` empty → mirror every regular file under its
-   original relative path.
+3. `install_rule.extract_files` non-empty → extract matched payloads into mapped
+   destination folders (currently `format: "gma"`).
+4. `install_rule` absent, or `match` and `extract_files` both empty → mirror every
+   regular file under its original relative path.
 
 Template tokens: `{workshop_id}`, `{app_id}`, `{ext}` (lowercased original
 extension), `{basename}` (original stem), and `{title_slug}` (Steam title slug,
 falling back to an empty string when unavailable). `rename` and generated file
-`path` may contain `/` subdirectories and are validated as safe relative paths;
-the helper rejects path escapes, unknown tokens, and duplicate destinations across
-matched and generated files. Generated `content` is template-rendered too.
+`path` and extract `to` may contain `/` subdirectories and are validated as safe
+relative paths; the helper rejects path escapes, unknown tokens, and duplicate
+destinations across matched, generated, and extracted files. Generated `content`
+is template-rendered too.
 The `auth` and `post_install` preset fields are handled extension-side and are
 **not** sent to the helper.
 
@@ -102,13 +112,14 @@ Stream the downloaded artifact. Called by **Wings**, not the extension.
 - `403` if token mismatch, `404` if job unknown, `409` if job not yet `ready`.
 
 For non-archive installs the helper serves a generated transfer zip containing the
-selected files mapped to their install destinations plus any generated files from
-the preset. The `files` array tells the extension which paths should exist after
-Wings decompresses the transfer zip — these are the **install destinations**, not
-necessarily the raw SteamCMD filenames. The L4D2 rename (`<ugc-handle>_legacy.bin`
-→ `<workshop_id>.vpk` plus a paired image) and the GMod rename
-(`*_legacy.bin` → `addons/{title_slug}_{workshop_id}.gma` plus
-`resource.AddWorkshop` Lua) are preset data, not helper branches.
+selected files mapped to their install destinations, extracted payload entries,
+plus any generated files from the preset. The `files` array tells the extension
+which paths should be tracked for uninstall after Wings decompresses the transfer
+zip. For extracted folders this may be the folder root rather than every extracted
+file. The L4D2 rename (`<ugc-handle>_legacy.bin` → `<workshop_id>.vpk` plus a
+paired image) and the GMod install (`*_legacy.bin`/`.gma` → extracted
+`addons/{title_slug}_{workshop_id}/` plus `resource.AddWorkshop` Lua) are preset
+data, not helper branches.
 
 ### `GET /health`
 Authenticated reachability check.

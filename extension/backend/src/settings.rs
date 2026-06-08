@@ -69,6 +69,13 @@ pub struct GeneratedFileRule {
     pub content: String,
 }
 
+#[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
+pub struct ExtractFileRule {
+    pub format: String,
+    pub glob: String,
+    pub to: String,
+}
+
 /// A directory scan used to discover unmanaged Workshop content for a preset.
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
 pub struct ScanRule {
@@ -99,6 +106,9 @@ pub struct GamePreset {
     /// Generated files to bundle into the install artifact.
     #[serde(default)]
     pub generated_files: Vec<GeneratedFileRule>,
+    /// Archive-like payloads to extract into the install artifact.
+    #[serde(default)]
+    pub extract_files: Vec<ExtractFileRule>,
     /// Scan rules for unmanaged content discovery.
     #[serde(default)]
     pub scan: Vec<ScanRule>,
@@ -132,6 +142,7 @@ impl GamePreset {
                 },
             ],
             generated_files: Vec::new(),
+            extract_files: Vec::new(),
             scan: vec![
                 ScanRule {
                     path: "left4dead2/addons".to_string(),
@@ -164,17 +175,19 @@ impl GamePreset {
             name: "Garry's Mod".to_string(),
             install_path: "garrysmod".to_string(),
             auth: AuthRequirement::Anonymous,
-            r#match: vec![MatchRule {
-                glob: "*.gma|*_legacy.bin".to_string(),
-                rename: Some("addons/{title_slug}_{workshop_id}.gma".to_string()),
-            }],
+            r#match: Vec::new(),
             generated_files: vec![GeneratedFileRule {
                 path: "lua/autorun/server/cala_workshop_{workshop_id}.lua".to_string(),
                 content: "if SERVER then resource.AddWorkshop(\"{workshop_id}\") end\n".to_string(),
             }],
+            extract_files: vec![ExtractFileRule {
+                format: "gma".to_string(),
+                glob: "*.gma|*_legacy.bin".to_string(),
+                to: "addons/{title_slug}_{workshop_id}".to_string(),
+            }],
             scan: vec![ScanRule {
                 path: "garrysmod/addons".to_string(),
-                extensions: vec!["gma".to_string()],
+                extensions: Vec::new(),
                 glob: None,
             }],
             post_install: PostInstall::None,
@@ -184,6 +197,7 @@ impl GamePreset {
     fn hydrate_legacy_defaults(&mut self) {
         let default = match self.app_id {
             550 => GamePreset::l4d2_default(),
+            4000 => GamePreset::gmod_default(),
             _ => return,
         };
 
@@ -193,10 +207,33 @@ impl GamePreset {
         if self.r#match.is_empty() {
             self.r#match = default.r#match;
         }
+        if self.app_id == 4000
+            && self.extract_files.is_empty()
+            && self
+                .r#match
+                .iter()
+                .any(|rule| rule.glob.contains("*_legacy.bin") && rule.glob.contains("*.gma"))
+        {
+            self.r#match.clear();
+        }
+        if self.extract_files.is_empty() {
+            self.extract_files = default.extract_files;
+        }
+        if self.generated_files.is_empty() {
+            self.generated_files = default.generated_files;
+        }
         if self.post_install == PostInstall::None {
             self.post_install = default.post_install;
         }
         if self.scan.is_empty() {
+            self.scan = default.scan;
+        } else if self.app_id == 4000
+            && self.scan.iter().any(|scan| {
+                scan.extensions
+                    .iter()
+                    .any(|ext| ext.eq_ignore_ascii_case("gma"))
+            })
+        {
             self.scan = default.scan;
         }
     }

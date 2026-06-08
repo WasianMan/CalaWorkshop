@@ -38,21 +38,25 @@ independent image published to GHCR.
 
 Per-game behavior is **data**, not code. Each preset in the extension settings
 carries `app_id`, `name`, `install_path`, an `auth` requirement, a `post_install`
-action, `match` rules, optional `generated_files`, and `scan` rules. At download
-time the extension resolves the preset for the requested `app_id` and sends the
-install rule to the helper, which selects, renames, and generates files accordingly
-(see [CONTRACT.md](../CONTRACT.md)). The L4D2 `<workshop_id>.vpk` rename is now
-just the default preset's rule, so new games need no helper code. An app id with
-no preset falls back to "mirror every downloaded file". `post_install` is persisted
-on the download row so the install step is driven by server-side state, not a
-client flag.
+action, `match` rules, optional `extract_files`, optional `generated_files`, and
+`scan` rules. At download time the extension resolves the preset for the requested
+`app_id` and sends the install rule to the helper, which selects, renames,
+extracts, and generates files accordingly (see [CONTRACT.md](../CONTRACT.md)).
+The L4D2 `<workshop_id>.vpk` rename is now just the default preset's rule, so new
+games need no helper code. An app id with no preset falls back to "mirror every
+downloaded file". `post_install` is persisted on the download row so the install
+step is driven by server-side state, not a client flag.
 
 Garry's Mod is configured the same way: the preset root is `garrysmod`, the
-downloaded legacy payload is written to `addons/{title_slug}_{workshop_id}.gma`,
-and a generated `lua/autorun/server/cala_workshop_{workshop_id}.lua` file calls
+downloaded `.gma`/legacy payload is extracted to
+`addons/{title_slug}_{workshop_id}/`, and a generated
+`lua/autorun/server/cala_workshop_{workshop_id}.lua` file calls
 `resource.AddWorkshop("<workshop_id>")` so clients fetch the Workshop content.
-Generated files can run game server code, so preset editing is intentionally gated
-behind the admin `calaworkshop.configure` permission.
+The helper extracts GMAD payloads itself rather than trying to run `gmad` inside
+the game server container, because placement goes through Wings `files/pull` and
+must work on remote nodes. Generated files can run game server code, so preset
+editing is intentionally gated behind the admin `calaworkshop.configure`
+permission.
 
 See [`games.example.json`](./games.example.json) for full preset examples and
 [`advanced-rule.example.json`](./advanced-rule.example.json) for the exact
@@ -125,20 +129,22 @@ uninstall.
 
 Installed-content scanning is also preset-driven. L4D2 scans
 `left4dead2/addons` and `left4dead2/addons/workshop`; GMod scans
-`garrysmod/addons` for `.gma` files. Managed installs are de-duplicated against
+`garrysmod/addons` for addon folders. Managed installs are de-duplicated against
 scan results even when the preset root differs from the scanned subdirectory
-(for example `garrysmod` plus `addons/foo.gma`).
+(for example `garrysmod` plus `addons/foo_123/`).
 
 ## Helper internals
 
 - In-memory job registry; artifacts written under `WORKSHOP_DATA_DIR/jobs/<id>/`.
 - **Install-rule evaluation:** for non-archive downloads the helper applies the
-  preset's `match` rules to the SteamCMD content folder and writes a transfer zip
-  using the rendered install destinations plus any generated files. The default
-  L4D2 preset matches the common `*_legacy.bin` raw VPK and paired preview image,
-  renaming them to `<workshop_id>.vpk` and `<workshop_id>.<ext>`. The default GMod
-  preset maps `*_legacy.bin`/`*.gma` to `addons/{title_slug}_{workshop_id}.gma`
-  and adds the per-item client-download Lua file.
+  preset's `match`/`extract_files` rules to the SteamCMD content folder and writes
+  a transfer zip using rendered install destinations plus any generated files.
+  The default L4D2 preset matches the common `*_legacy.bin` raw VPK and paired
+  preview image, renaming them to `<workshop_id>.vpk` and `<workshop_id>.<ext>`.
+  The default GMod preset extracts `*_legacy.bin`/`*.gma` to
+  `addons/{title_slug}_{workshop_id}/` and adds the per-item client-download Lua
+  file. GMAD extraction parses the archive index and streams file ranges from the
+  source payload into the zip, with path traversal and size caps.
 - Per-account SteamCMD working dirs under `WORKSHOP_DATA_DIR/steam/<label|anonymous>/`
   so cached sessions persist (mount `/data`).
 - `GET /files/<job>?token=` is the only unauthenticated-by-header endpoint (Wings pull

@@ -297,6 +297,7 @@ async fn do_download(
         let size = tokio::fs::metadata(&dest).await?.len();
         let files = mapped
             .iter()
+            .filter(|entry| entry.tracked())
             .map(|entry| entry.install_name().to_string())
             .collect();
         Ok((file_name, files, size))

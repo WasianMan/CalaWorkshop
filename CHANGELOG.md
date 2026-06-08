@@ -17,11 +17,14 @@ All notable changes to this project are documented here. Format loosely follows
   for full preset examples and [`docs/advanced-rule.example.json`](./docs/advanced-rule.example.json)
   for a copy-pasteable Advanced-box example.
 - **Garry's Mod default preset.** App 4000 is seeded with anonymous SteamCMD
-  downloads, `*_legacy.bin`/`*.gma` mapping to
-  `addons/{title_slug}_{workshop_id}.gma`, and a generated per-item
+  downloads, GMAD extraction from `*_legacy.bin`/`*.gma` into
+  `addons/{title_slug}_{workshop_id}/`, and a generated per-item
   `resource.AddWorkshop` Lua file for client delivery.
 - Presets can now define generated files and installed-content scan rules. The
   installed-content page no longer scans hardcoded L4D2 paths for every server.
+- Presets can now define `extract_files` actions. The helper currently supports
+  bounded GMAD extraction without requiring `gmad` inside the game server
+  container.
 - **Best-effort game auto-detection.** The Workshop tab preselects a preset by
   scoring the server's egg variables / startup command against configured app
   ids (high/medium/low confidence); the user can always override.

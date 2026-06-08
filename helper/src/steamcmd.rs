@@ -22,6 +22,10 @@ const MAX_MATCHED_FILES: usize = 4096;
 const MAX_DEST_LEN: usize = 512;
 const MAX_GENERATED_FILES: usize = 64;
 const MAX_GENERATED_CONTENT_LEN: usize = 64 * 1024;
+const MAX_EXTRACT_RULES: usize = 16;
+const MAX_EXTRACTED_FILES: usize = 4096;
+const MAX_EXTRACTED_TOTAL_SIZE: u64 = 4 * 1024 * 1024 * 1024;
+const MAX_GMA_STRING_LEN: usize = 4096;
 
 /// Hard ceilings so a stuck steamcmd (e.g. a blocked socket retrying, or a Steam
 /// Guard prompt it can never satisfy non-interactively) can't hang a request or
@@ -435,6 +439,13 @@ pub struct GeneratedFileRule {
     pub content: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExtractFileRule {
+    pub format: String,
+    pub glob: String,
+    pub to: String,
+}
+
 /// The resolved install rule for a download. An empty `matchers` list means
 /// "mirror every downloaded file under its original relative path".
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -443,6 +454,8 @@ pub struct InstallRule {
     pub matchers: Vec<MatchRule>,
     #[serde(default)]
     pub generated_files: Vec<GeneratedFileRule>,
+    #[serde(default)]
+    pub extract_files: Vec<ExtractFileRule>,
 }
 
 #[derive(Debug, Clone)]
@@ -450,10 +463,23 @@ pub enum InstallEntry {
     Source {
         rel: PathBuf,
         install_name: String,
+        tracked: bool,
+    },
+    SourceSlice {
+        rel: PathBuf,
+        offset: u64,
+        len: u64,
+        install_name: String,
+        tracked: bool,
     },
     Generated {
         content: Vec<u8>,
         install_name: String,
+        tracked: bool,
+    },
+    Directory {
+        install_name: String,
+        tracked: bool,
     },
 }
 
@@ -461,7 +487,18 @@ impl InstallEntry {
     pub fn install_name(&self) -> &str {
         match self {
             InstallEntry::Source { install_name, .. } => install_name,
+            InstallEntry::SourceSlice { install_name, .. } => install_name,
             InstallEntry::Generated { install_name, .. } => install_name,
+            InstallEntry::Directory { install_name, .. } => install_name,
+        }
+    }
+
+    pub fn tracked(&self) -> bool {
+        match self {
+            InstallEntry::Source { tracked, .. } => *tracked,
+            InstallEntry::SourceSlice { tracked, .. } => *tracked,
+            InstallEntry::Generated { tracked, .. } => *tracked,
+            InstallEntry::Directory { tracked, .. } => *tracked,
         }
     }
 }
@@ -492,6 +529,12 @@ pub async fn apply_install_rule(
             rule.generated_files.len()
         );
     }
+    if rule.extract_files.len() > MAX_EXTRACT_RULES {
+        bail!(
+            "install rule has too many extract_files entries ({} > {MAX_EXTRACT_RULES})",
+            rule.extract_files.len()
+        );
+    }
 
     // Files relative to the content root, sorted for deterministic output.
     let mut rels: Vec<PathBuf> = regular_files(content_dir)
@@ -501,8 +544,9 @@ pub async fn apply_install_rule(
         .collect();
     rels.sort();
 
-    // Mode 3: mirror everything under its original relative name.
-    if rule.matchers.is_empty() {
+    // Mode 3: mirror everything under its original relative name, but only when
+    // there is no explicit source mapping/extraction action.
+    if rule.matchers.is_empty() && rule.extract_files.is_empty() {
         let mut out = Vec::with_capacity(rels.len() + rule.generated_files.len());
         for rel in &rels {
             let dest = rel_to_dest(rel);
@@ -510,9 +554,20 @@ pub async fn apply_install_rule(
             out.push(InstallEntry::Source {
                 rel: rel.clone(),
                 install_name: dest,
+                tracked: true,
             });
         }
         append_generated_files(&mut out, app_id, workshop_id, title_slug, rule)?;
+        append_extracted_files(
+            content_dir,
+            &rels,
+            &mut out,
+            app_id,
+            workshop_id,
+            title_slug,
+            rule,
+        )
+        .await?;
         return finalize_selection(out);
     }
 
@@ -530,31 +585,44 @@ pub async fn apply_install_rule(
             owner.push(i);
         }
     }
-    let set = builder.build().context("building glob set")?;
 
     let mut out = Vec::new();
-    for rel in &rels {
-        let rel_str = rel_to_dest(rel);
-        let Some(rule_idx) = set
-            .matches(&rel_str)
-            .into_iter()
-            .map(|builder_idx| owner[builder_idx])
-            .min()
-        else {
-            continue; // unmatched files are simply not installed
-        };
-        let dest = match &rule.matchers[rule_idx].rename {
-            Some(tpl) => render_template(tpl, app_id, workshop_id, title_slug, rel)?,
-            None => rel_str,
-        };
-        validate_install_dest(&dest)?;
-        warn_if_format_looks_unexpected(content_dir, rel, &dest).await;
-        out.push(InstallEntry::Source {
-            rel: rel.clone(),
-            install_name: dest,
-        });
+    if !rule.matchers.is_empty() {
+        let set = builder.build().context("building glob set")?;
+        for rel in &rels {
+            let rel_str = rel_to_dest(rel);
+            let Some(rule_idx) = set
+                .matches(&rel_str)
+                .into_iter()
+                .map(|builder_idx| owner[builder_idx])
+                .min()
+            else {
+                continue; // unmatched files are simply not installed
+            };
+            let dest = match &rule.matchers[rule_idx].rename {
+                Some(tpl) => render_template(tpl, app_id, workshop_id, title_slug, rel)?,
+                None => rel_str,
+            };
+            validate_install_dest(&dest)?;
+            warn_if_format_looks_unexpected(content_dir, rel, &dest).await;
+            out.push(InstallEntry::Source {
+                rel: rel.clone(),
+                install_name: dest,
+                tracked: true,
+            });
+        }
     }
     append_generated_files(&mut out, app_id, workshop_id, title_slug, rule)?;
+    append_extracted_files(
+        content_dir,
+        &rels,
+        &mut out,
+        app_id,
+        workshop_id,
+        title_slug,
+        rule,
+    )
+    .await?;
     finalize_selection(out)
 }
 
@@ -595,9 +663,101 @@ fn append_generated_files(
         out.push(InstallEntry::Generated {
             content: content.into_bytes(),
             install_name,
+            tracked: true,
         });
     }
     Ok(())
+}
+
+async fn append_extracted_files(
+    content_dir: &Path,
+    rels: &[PathBuf],
+    out: &mut Vec<InstallEntry>,
+    app_id: u64,
+    workshop_id: u64,
+    title_slug: Option<&str>,
+    rule: &InstallRule,
+) -> Result<()> {
+    for extract in &rule.extract_files {
+        if !extract.format.eq_ignore_ascii_case("gma") {
+            bail!("unsupported extract format '{}'", extract.format);
+        }
+
+        let sources = matching_rels(&extract.glob, rels)?;
+        if sources.is_empty() {
+            bail!(
+                "extract rule '{}' matched no files in the downloaded content",
+                extract.glob
+            );
+        }
+
+        for rel in sources {
+            let ext = rel
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            let basename = rel
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            let base = render_context_template(
+                &extract.to,
+                app_id,
+                workshop_id,
+                title_slug,
+                Some((&ext, &basename)),
+                true,
+                true,
+            )?;
+            validate_install_dest(&base)?;
+
+            let entries = parse_gma_entries(&content_dir.join(&rel)).await?;
+            if entries.is_empty() {
+                bail!("GMA '{}' contains no files", rel.display());
+            }
+
+            out.push(InstallEntry::Directory {
+                install_name: base.clone(),
+                tracked: true,
+            });
+            for entry in entries {
+                let install_name = format!("{}/{}", base.trim_end_matches('/'), entry.name);
+                validate_install_dest(&install_name)?;
+                out.push(InstallEntry::SourceSlice {
+                    rel: rel.clone(),
+                    offset: entry.offset,
+                    len: entry.size,
+                    install_name,
+                    tracked: false,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn matching_rels(glob: &str, rels: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    let mut builder = GlobSetBuilder::new();
+    let mut added = false;
+    for pat in glob.split('|') {
+        let pat = pat.trim();
+        if pat.is_empty() {
+            continue;
+        }
+        builder.add(Glob::new(pat).with_context(|| format!("invalid glob '{pat}'"))?);
+        added = true;
+    }
+    if !added {
+        bail!("extract rule has an empty glob");
+    }
+    let set = builder.build().context("building extract glob set")?;
+    Ok(rels
+        .iter()
+        .filter(|rel| set.is_match(rel_to_dest(rel)))
+        .cloned()
+        .collect())
 }
 
 /// Enforce the matched-file ceiling and reject duplicate destinations.
@@ -706,6 +866,158 @@ fn validate_install_dest(dest: &str) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
+struct GmaEntry {
+    name: String,
+    offset: u64,
+    size: u64,
+}
+
+async fn parse_gma_entries(path: &Path) -> Result<Vec<GmaEntry>> {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+    let mut file = tokio::fs::File::open(path)
+        .await
+        .with_context(|| format!("opening GMA {}", path.display()))?;
+    let mut magic = [0u8; 4];
+    file.read_exact(&mut magic).await?;
+    if &magic != b"GMAD" {
+        bail!("{} is not a GMAD archive", path.display());
+    }
+
+    let version = read_u8(&mut file).await?;
+    if version > 3 {
+        bail!("unsupported GMAD version {version}");
+    }
+    let _steam_id = read_u64(&mut file).await?;
+    let _timestamp = read_u64(&mut file).await?;
+    if version > 1 {
+        loop {
+            let required = read_gma_string(&mut file).await?;
+            if required.is_empty() {
+                break;
+            }
+        }
+    }
+    let _name = read_gma_string(&mut file).await?;
+    let _description = read_gma_string(&mut file).await?;
+    let _author = read_gma_string(&mut file).await?;
+    let _addon_version = read_i32(&mut file).await?;
+
+    let mut pending = Vec::new();
+    let mut relative_offset = 0u64;
+    let mut total_size = 0u64;
+    loop {
+        let file_number = read_u32(&mut file).await?;
+        if file_number == 0 {
+            break;
+        }
+        if pending.len() >= MAX_EXTRACTED_FILES {
+            bail!("GMA has too many files (> {MAX_EXTRACTED_FILES})");
+        }
+        let name = read_gma_string(&mut file).await?;
+        validate_gma_entry_name(&name)?;
+        let size = read_i64(&mut file).await?;
+        if size < 0 {
+            bail!("GMA entry '{name}' has a negative size");
+        }
+        let size = size as u64;
+        total_size = total_size
+            .checked_add(size)
+            .ok_or_else(|| anyhow!("GMA extracted size overflow"))?;
+        if total_size > MAX_EXTRACTED_TOTAL_SIZE {
+            bail!("GMA extracted size exceeds {MAX_EXTRACTED_TOTAL_SIZE} bytes");
+        }
+        let _crc = read_u32(&mut file).await?;
+        pending.push((name, relative_offset, size));
+        relative_offset = relative_offset
+            .checked_add(size)
+            .ok_or_else(|| anyhow!("GMA file offset overflow"))?;
+    }
+
+    let fileblock = file.stream_position().await?;
+    let archive_len = file.metadata().await?.len();
+    let mut entries = Vec::with_capacity(pending.len());
+    for (name, rel_offset, size) in pending {
+        let offset = fileblock
+            .checked_add(rel_offset)
+            .ok_or_else(|| anyhow!("GMA absolute offset overflow"))?;
+        let end = offset
+            .checked_add(size)
+            .ok_or_else(|| anyhow!("GMA entry end offset overflow"))?;
+        if end > archive_len {
+            bail!("GMA entry '{name}' extends past end of archive");
+        }
+        entries.push(GmaEntry { name, offset, size });
+    }
+    Ok(entries)
+}
+
+async fn read_u8(file: &mut tokio::fs::File) -> Result<u8> {
+    let mut buf = [0u8; 1];
+    file.read_exact(&mut buf).await?;
+    Ok(buf[0])
+}
+
+async fn read_u32(file: &mut tokio::fs::File) -> Result<u32> {
+    let mut buf = [0u8; 4];
+    file.read_exact(&mut buf).await?;
+    Ok(u32::from_le_bytes(buf))
+}
+
+async fn read_i32(file: &mut tokio::fs::File) -> Result<i32> {
+    let mut buf = [0u8; 4];
+    file.read_exact(&mut buf).await?;
+    Ok(i32::from_le_bytes(buf))
+}
+
+async fn read_u64(file: &mut tokio::fs::File) -> Result<u64> {
+    let mut buf = [0u8; 8];
+    file.read_exact(&mut buf).await?;
+    Ok(u64::from_le_bytes(buf))
+}
+
+async fn read_i64(file: &mut tokio::fs::File) -> Result<i64> {
+    let mut buf = [0u8; 8];
+    file.read_exact(&mut buf).await?;
+    Ok(i64::from_le_bytes(buf))
+}
+
+async fn read_gma_string(file: &mut tokio::fs::File) -> Result<String> {
+    let mut bytes = Vec::new();
+    loop {
+        if bytes.len() >= MAX_GMA_STRING_LEN {
+            bail!("GMA string exceeds {MAX_GMA_STRING_LEN} bytes");
+        }
+        let mut b = [0u8; 1];
+        file.read_exact(&mut b).await?;
+        if b[0] == 0 {
+            break;
+        }
+        bytes.push(b[0]);
+    }
+    String::from_utf8(bytes).context("GMA string is not valid UTF-8")
+}
+
+fn validate_gma_entry_name(name: &str) -> Result<()> {
+    let normalized = name.replace('\\', "/");
+    if normalized.is_empty() || normalized.starts_with('/') {
+        bail!("GMA entry '{name}' is not a safe relative path");
+    }
+    for seg in normalized.split('/') {
+        if seg.is_empty() || seg == "." || seg == ".." {
+            bail!("GMA entry '{name}' has an invalid path segment");
+        }
+        if seg.contains(':') {
+            bail!("GMA entry '{name}' contains a drive/colon segment");
+        }
+        if seg.chars().any(char::is_control) {
+            bail!("GMA entry '{name}' contains control characters");
+        }
+    }
+    Ok(())
+}
+
 async fn regular_files(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
@@ -779,7 +1091,7 @@ pub async fn zip_selected_files(
 }
 
 fn zip_selected_files_blocking(src_root: &Path, files: &[InstallEntry], dest: &Path) -> Result<()> {
-    use std::io::{Read, Write};
+    use std::io::{Read, Seek, SeekFrom, Write};
     use zip::write::SimpleFileOptions;
 
     let file = std::fs::File::create(dest)
@@ -790,17 +1102,36 @@ fn zip_selected_files_blocking(src_root: &Path, files: &[InstallEntry], dest: &P
 
     for entry in files {
         let name = entry.install_name().replace('\\', "/");
-        zip.start_file(name, options)?;
         buf.clear();
         match entry {
             InstallEntry::Source { rel, .. } => {
+                zip.start_file(name, options)?;
                 let src = src_root.join(rel);
                 let mut f = std::fs::File::open(&src)?;
                 f.read_to_end(&mut buf)?;
                 zip.write_all(&buf)?;
             }
+            InstallEntry::SourceSlice {
+                rel, offset, len, ..
+            } => {
+                zip.start_file(name, options)?;
+                let src = src_root.join(rel);
+                let mut f = std::fs::File::open(&src)?;
+                f.seek(SeekFrom::Start(*offset))?;
+                let mut limited = f.take(*len);
+                std::io::copy(&mut limited, &mut zip)?;
+            }
             InstallEntry::Generated { content, .. } => {
+                zip.start_file(name, options)?;
                 zip.write_all(content)?;
+            }
+            InstallEntry::Directory { .. } => {
+                let dir_name = if name.ends_with('/') {
+                    name
+                } else {
+                    format!("{name}/")
+                };
+                zip.add_directory(dir_name, options)?;
             }
         }
     }
@@ -952,6 +1283,7 @@ mod tests {
     /// Create a throwaway content dir populated with empty files.
     async fn make_content(files: &[&str]) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("calaworkshop-test-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
         for f in files {
             let path = dir.join(f);
             if let Some(parent) = path.parent() {
@@ -970,6 +1302,37 @@ mod tests {
             .collect()
     }
 
+    fn tracked_dests(mut v: Vec<InstallEntry>) -> Vec<String> {
+        v.retain(InstallEntry::tracked);
+        dests(v)
+    }
+
+    fn test_gma(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"GMAD");
+        out.push(3);
+        out.extend_from_slice(&0u64.to_le_bytes());
+        out.extend_from_slice(&0u64.to_le_bytes());
+        out.push(0); // required content terminator
+        for s in ["test", "desc", "author"] {
+            out.extend_from_slice(s.as_bytes());
+            out.push(0);
+        }
+        out.extend_from_slice(&1i32.to_le_bytes());
+        for (i, (name, data)) in entries.iter().enumerate() {
+            out.extend_from_slice(&((i + 1) as u32).to_le_bytes());
+            out.extend_from_slice(name.as_bytes());
+            out.push(0);
+            out.extend_from_slice(&(data.len() as i64).to_le_bytes());
+            out.extend_from_slice(&0u32.to_le_bytes());
+        }
+        out.extend_from_slice(&0u32.to_le_bytes());
+        for (_, data) in entries {
+            out.extend_from_slice(data);
+        }
+        out
+    }
+
     fn l4d2_rule() -> InstallRule {
         InstallRule {
             matchers: vec![
@@ -983,6 +1346,7 @@ mod tests {
                 },
             ],
             generated_files: Vec::new(),
+            extract_files: Vec::new(),
         }
     }
 
@@ -1025,6 +1389,7 @@ mod tests {
                 rename: None,
             }],
             generated_files: Vec::new(),
+            extract_files: Vec::new(),
         };
         let mapped = apply_install_rule(&dir, 1, 1, None, &rule).await.unwrap();
         assert_eq!(dests(mapped), vec!["keep.pak".to_string()]);
@@ -1040,6 +1405,7 @@ mod tests {
                 rename: Some("Mods/{basename}.{ext}".into()),
             }],
             generated_files: Vec::new(),
+            extract_files: Vec::new(),
         };
         let mapped = apply_install_rule(&dir, 1, 1, None, &rule).await.unwrap();
         assert_eq!(dests(mapped), vec!["Mods/mod.pak".to_string()]);
@@ -1055,6 +1421,7 @@ mod tests {
                 rename: Some("{workshop_id}.vpk".into()),
             }],
             generated_files: Vec::new(),
+            extract_files: Vec::new(),
         };
         let err = apply_install_rule(&dir, 550, 99, None, &rule)
             .await
@@ -1075,6 +1442,7 @@ mod tests {
                 path: "lua/autorun/server/cala_workshop_{workshop_id}.lua".into(),
                 content: "if SERVER then resource.AddWorkshop(\"{workshop_id}\") end\n".into(),
             }],
+            extract_files: Vec::new(),
         };
         let mapped = apply_install_rule(&dir, 4000, 105764633, Some("gm_ocean_evening"), &rule)
             .await
@@ -1101,6 +1469,7 @@ mod tests {
                 path: "addons/a.gma".into(),
                 content: "x".into(),
             }],
+            extract_files: Vec::new(),
         };
         let err = apply_install_rule(&dir, 4000, 1, None, &rule)
             .await
@@ -1118,11 +1487,71 @@ mod tests {
                 path: "lua/autorun/server/cala_workshop_{workshop_id}.lua".into(),
                 content: "local ids = { \"{workshop_id}\" }\n".into(),
             }],
+            extract_files: Vec::new(),
         };
         let mapped = apply_install_rule(&dir, 4000, 42, None, &rule)
             .await
             .unwrap();
         assert!(dests(mapped).contains(&"lua/autorun/server/cala_workshop_42.lua".to_string()));
+        tokio::fs::remove_dir_all(&dir).await.ok();
+    }
+
+    #[tokio::test]
+    async fn gmod_rule_extracts_gma_and_tracks_folder_plus_lua() {
+        let dir = make_content(&[]).await;
+        tokio::fs::write(
+            dir.join("315621401145590065_legacy.bin"),
+            test_gma(&[
+                ("lua/autorun/server/example.lua", b"print('ok')"),
+                ("materials/icon.vmt", b"vmt"),
+            ]),
+        )
+        .await
+        .unwrap();
+        let rule = InstallRule {
+            matchers: Vec::new(),
+            generated_files: vec![GeneratedFileRule {
+                path: "lua/autorun/server/cala_workshop_{workshop_id}.lua".into(),
+                content: "if SERVER then resource.AddWorkshop(\"{workshop_id}\") end\n".into(),
+            }],
+            extract_files: vec![ExtractFileRule {
+                format: "gma".into(),
+                glob: "*.gma|*_legacy.bin".into(),
+                to: "addons/{title_slug}_{workshop_id}".into(),
+            }],
+        };
+
+        let mapped = apply_install_rule(&dir, 4000, 105764633, Some("gm_ocean_evening"), &rule)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            dests(mapped.clone()),
+            vec![
+                "addons/gm_ocean_evening_105764633".to_string(),
+                "addons/gm_ocean_evening_105764633/lua/autorun/server/example.lua".to_string(),
+                "addons/gm_ocean_evening_105764633/materials/icon.vmt".to_string(),
+                "lua/autorun/server/cala_workshop_105764633.lua".to_string(),
+            ]
+        );
+        assert_eq!(
+            tracked_dests(mapped),
+            vec![
+                "addons/gm_ocean_evening_105764633".to_string(),
+                "lua/autorun/server/cala_workshop_105764633.lua".to_string(),
+            ]
+        );
+        tokio::fs::remove_dir_all(&dir).await.ok();
+    }
+
+    #[tokio::test]
+    async fn gma_extraction_rejects_path_escape_entries() {
+        let dir = make_content(&[]).await;
+        tokio::fs::write(dir.join("bad.gma"), test_gma(&[("../evil.lua", b"bad")]))
+            .await
+            .unwrap();
+        let err = parse_gma_entries(&dir.join("bad.gma")).await.unwrap_err();
+        assert!(err.to_string().contains("invalid path segment"));
         tokio::fs::remove_dir_all(&dir).await.ok();
     }
 

@@ -20,8 +20,13 @@
     "name": "Garry's Mod",
     "install_path": "garrysmod",
     "auth": "anonymous",
-    "match": [
-      { "glob": "*.gma|*_legacy.bin", "rename": "addons/{title_slug}_{workshop_id}.gma" }
+    "match": [],
+    "extract_files": [
+      {
+        "format": "gma",
+        "glob": "*.gma|*_legacy.bin",
+        "to": "addons/{title_slug}_{workshop_id}"
+      }
     ],
     "generated_files": [
       {
@@ -30,7 +35,7 @@
       }
     ],
     "scan": [
-      { "path": "garrysmod/addons", "extensions": ["gma"] }
+      { "path": "garrysmod/addons", "extensions": [] }
     ],
     "post_install": "none"
   },

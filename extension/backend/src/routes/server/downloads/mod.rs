@@ -106,6 +106,7 @@ mod post {
             generated_files: preset
                 .map(|p| p.generated_files.clone())
                 .unwrap_or_default(),
+            extract_files: preset.map(|p| p.extract_files.clone()).unwrap_or_default(),
         };
         let post_install = match preset.map(|p| p.post_install) {
             Some(crate::settings::PostInstall::Extract) => "extract",

@@ -30,6 +30,11 @@ export default async (input: UpdateSettingsInput): Promise<void> => {
         path: g.path,
         content: g.content,
       })),
+      extract_files: (p.extractFiles ?? []).map((e) => ({
+        format: e.format,
+        glob: e.glob,
+        to: e.to,
+      })),
       scan: (p.scan ?? []).map((s) => ({
         path: s.path,
         extensions: s.extensions ?? [],

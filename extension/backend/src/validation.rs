@@ -69,6 +69,23 @@ pub fn validate_game_presets(presets: &[crate::settings::GamePreset]) -> Result<
                 ApiResponse::error(format!("preset '{}': {reason}", preset.name))
             })?;
         }
+        for extract in &preset.extract_files {
+            if !extract.format.eq_ignore_ascii_case("gma") {
+                return Err(ApiResponse::error(format!(
+                    "preset '{}' has unsupported extract format '{}'",
+                    preset.name, extract.format
+                )));
+            }
+            if extract.glob.trim().is_empty() {
+                return Err(ApiResponse::error(format!(
+                    "preset '{}' has an empty extract glob",
+                    preset.name
+                )));
+            }
+            validate_template_path(&extract.to).map_err(|reason| {
+                ApiResponse::error(format!("preset '{}': {reason}", preset.name))
+            })?;
+        }
         for scan in &preset.scan {
             normalize_server_path(&scan.path).map_err(|_| {
                 ApiResponse::error(format!("preset '{}' has an invalid scan path", preset.name))

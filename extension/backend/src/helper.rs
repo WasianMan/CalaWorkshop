@@ -26,6 +26,8 @@ pub struct InstallRulePayload {
     pub matchers: Vec<crate::settings::MatchRule>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub generated_files: Vec<crate::settings::GeneratedFileRule>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extract_files: Vec<crate::settings::ExtractFileRule>,
 }
 
 #[derive(Deserialize)]

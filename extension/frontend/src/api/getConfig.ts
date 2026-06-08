@@ -13,6 +13,12 @@ export type GeneratedFileRule = {
   content: string;
 };
 
+export type ExtractFileRule = {
+  format: string;
+  glob: string;
+  to: string;
+};
+
 export type ScanRule = {
   path: string;
   extensions?: string[];
@@ -27,6 +33,7 @@ export type GamePreset = {
   auth?: AuthRequirement;
   match?: MatchRule[];
   generatedFiles?: GeneratedFileRule[];
+  extractFiles?: ExtractFileRule[];
   scan?: ScanRule[];
   postInstall?: PostInstall;
 };

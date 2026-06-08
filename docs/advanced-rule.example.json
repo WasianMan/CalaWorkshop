@@ -1,7 +1,12 @@
 {
   "auth": "anonymous",
-  "match": [
-    { "glob": "*.gma|*_legacy.bin", "rename": "addons/{title_slug}_{workshop_id}.gma" }
+  "match": [],
+  "extractFiles": [
+    {
+      "format": "gma",
+      "glob": "*.gma|*_legacy.bin",
+      "to": "addons/{title_slug}_{workshop_id}"
+    }
   ],
   "generatedFiles": [
     {
@@ -10,7 +15,7 @@
     }
   ],
   "scan": [
-    { "path": "garrysmod/addons", "extensions": ["gma"] }
+    { "path": "garrysmod/addons", "extensions": [] }
   ],
   "postInstall": "none"
 }

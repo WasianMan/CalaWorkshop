@@ -150,7 +150,9 @@ start normally. If you replace the zip while the panel is already running, resta
    - **Helper token**: the same `WORKSHOP_HELPER_TOKEN`
    - **Steam Web API key**: optional; SteamCMD handles downloads, the API key only
      improves names/previews/search metadata
-   - **Game presets**: Left 4 Dead 2 should point at `left4dead2/addons`
+   - **Game presets**: Left 4 Dead 2 should point at `left4dead2/addons`;
+     Garry's Mod should point at `garrysmod` and use the default GMAD extraction
+     rule.
 2. Run the admin diagnostics. Helper and SteamCMD should both report healthy.
 3. Grant server permissions as needed:
    - `workshop.read`

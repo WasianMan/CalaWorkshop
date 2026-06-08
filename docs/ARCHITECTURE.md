@@ -58,7 +58,8 @@ must work on remote nodes. Generated files can run game server code, so preset
 editing is intentionally gated behind the admin `calaworkshop.configure`
 permission.
 
-See [`games.example.json`](./games.example.json) for full preset examples and
+See [`GAME_PRESETS.md`](./GAME_PRESETS.md) for authoring guidance,
+[`games.example.json`](./games.example.json) for tested built-in presets, and
 [`advanced-rule.example.json`](./advanced-rule.example.json) for the exact
 Advanced-box JSON shape.
 

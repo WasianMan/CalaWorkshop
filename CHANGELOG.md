@@ -3,7 +3,8 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
-## [Unreleased]
+
+## [0.2.5] - 2026-06-08
 
 ### Added
 - **Data-driven, multi-game install rules.** Game presets now carry an optional
@@ -14,7 +15,7 @@ All notable changes to this project are documented here. Format loosely follows
   `{workshop_id}`/`{app_id}`/`{ext}`/`{basename}`/`{title_slug}` tokens and safe subpaths.
   Glob matching uses `globset`. An admin "Advanced (JSON)" editor authors the
   rules per preset. See [`docs/games.example.json`](./docs/games.example.json)
-  for full preset examples and [`docs/advanced-rule.example.json`](./docs/advanced-rule.example.json)
+  for tested built-in preset examples and [`docs/advanced-rule.example.json`](./docs/advanced-rule.example.json)
   for a copy-pasteable Advanced-box example.
 - **Garry's Mod default preset.** App 4000 is seeded with anonymous SteamCMD
   downloads, GMAD extraction from `*_legacy.bin`/`*.gma` into
@@ -42,6 +43,10 @@ All notable changes to this project are documented here. Format loosely follows
   `<workshop_id>.vpk` files without requiring admins to re-save settings.
 - The Advanced JSON editor now uses a plain textarea with conditional rendering
   so it works reliably in the panel UI.
+
+### Docs
+- Added a game preset authoring guide and limited official examples to tested
+  built-ins: Left 4 Dead 2 and Garry's Mod.
 
 ## [0.2.4]
 

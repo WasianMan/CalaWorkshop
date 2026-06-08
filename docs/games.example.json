@@ -38,29 +38,5 @@
       { "path": "garrysmod/addons", "extensions": [] }
     ],
     "post_install": "none"
-  },
-  {
-    "app_id": 107410,
-    "name": "Arma 3",
-    "install_path": "mods",
-    "auth": "account",
-    "match": [{ "glob": "**/*", "rename": "{basename}.{ext}" }],
-    "post_install": "none"
-  },
-  {
-    "app_id": 252490,
-    "name": "Rust",
-    "install_path": "server/rust/oxide/plugins",
-    "auth": "anonymous",
-    "match": [{ "glob": "*.cs" }],
-    "post_install": "none"
-  },
-  {
-    "app_id": 346110,
-    "name": "ARK: Survival Evolved",
-    "install_path": "ShooterGame/Content/Mods",
-    "auth": "anonymous",
-    "match": [{ "glob": "*.{zip,7z}", "rename": "{workshop_id}.{ext}" }],
-    "post_install": "extract"
   }
 ]

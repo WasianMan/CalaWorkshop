@@ -11,8 +11,8 @@ Steam Workshop installs for [Calagopus](https://calagopus.com), shipped as:
 
 It adds a per-server **Workshop** tab where you paste a Workshop URL/ID, download
 through SteamCMD, and install the selected files onto the game server through Wings.
-The first target is **Left 4 Dead 2**, including normal VPK + preview image pairs,
-but other Steam games can be added through presets.
+Built-in presets currently cover **Left 4 Dead 2** and **Garry's Mod**; other Steam
+games can be added through JSON presets.
 
 > **Status: alpha.** This is a side project I use on my own server and share in
 > case it helps others. It is functional end-to-end, but expect rough edges and
@@ -24,9 +24,14 @@ but other Steam games can be added through presets.
 - Persistent download history and installed-item tracking
 - Managed/imported/unmanaged installed-content list
 - Precise uninstall of files tracked by this extension
-- Data-driven, multi-game install rules: per-game presets with glob selection and
-  a rename template (the L4D2 `<workshop_id>.vpk` + preview naming is just the
-  default preset's rule). Unconfigured games mirror every downloaded file.
+- Built-in game presets:
+  - **Left 4 Dead 2**: installs SteamCMD legacy payloads as loadable
+    `<workshop_id>.vpk` files with paired preview images.
+  - **Garry's Mod**: extracts GMAD payloads into addon folders and generates
+    per-item `resource.AddWorkshop` Lua for client delivery.
+- Data-driven, multi-game install rules: per-game presets can glob, rename,
+  extract GMAD archives, generate files, and scan installed content. Unconfigured
+  games mirror every downloaded file.
 - Best-effort game auto-detection from the server's egg, preselecting the preset
 - Per-user Steam account linking with Steam Guard/mobile-auth support
 - Helper and SteamCMD diagnostics in the admin config page
@@ -51,6 +56,28 @@ URL into the server volume, so the same path works for AIO and remote nodes.
 
 Full design: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 Helper contract: [CONTRACT.md](./CONTRACT.md)
+
+## Custom Game Presets
+
+Admins can add or edit games from the extension settings page. Each preset has a
+structured App ID, name, and install path, plus an **Advanced (JSON)** block for
+the game-specific behavior:
+
+- `auth`: `default`, `anonymous`, or `account`
+- `match`: select downloaded files with globs and optionally rename them
+- `extractFiles`: extract supported archive-like payloads; currently `format:
+  "gma"` for Garry's Mod addons
+- `generatedFiles`: create small companion files such as server config or Lua
+- `scan`: tell the Installed Content page where to find unmanaged files/folders
+- `postInstall`: `none` or `extract` for nested archives after placement
+
+Start with the [game preset guide](./docs/GAME_PRESETS.md), then use
+[docs/games.example.json](./docs/games.example.json) for the tested built-in
+presets or [docs/advanced-rule.example.json](./docs/advanced-rule.example.json)
+for the exact camelCase JSON shape used by the Advanced editor. Most SteamCMD
+games that need "copy these files here" or "rename/extract this payload here" can
+be described without code; games that require startup-argument or config-file
+management may still need a purpose-built preset pattern.
 
 ## Install
 
@@ -124,7 +151,7 @@ install. See [CONTRIBUTING.md](./CONTRIBUTING.md) for more detail.
 
 ## Version
 
-Current release: **v0.2.4**
+Current release: **v0.2.5**
 Changelog: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Screenshots

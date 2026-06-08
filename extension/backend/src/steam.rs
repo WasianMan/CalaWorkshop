@@ -230,7 +230,7 @@ pub async fn get_published_file_details(
 
     Some(WorkshopMetadata {
         title: nonempty(item.title),
-        preview_url: nonempty(item.preview_url),
+        preview_url: item.preview_url.and_then(nonempty),
     })
 }
 
@@ -278,6 +278,7 @@ pub async fn query_files(
     sort: SearchSort,
     cursor: Option<&str>,
     file_type: MatchingFileType,
+    tags: &[String],
 ) -> Result<SearchResponse, anyhow::Error> {
     let mut form = vec![
         ("key".to_string(), api_key.to_string()),
@@ -291,7 +292,11 @@ pub async fn query_files(
         ("return_tags".to_string(), "1".to_string()),
         ("return_previews".to_string(), "1".to_string()),
         ("return_children".to_string(), "1".to_string()),
+        ("tagcount".to_string(), tags.len().to_string()),
     ];
+    for (idx, tag) in tags.iter().enumerate() {
+        form.push((format!("tags[{idx}]"), tag.to_string()));
+    }
     if let Some(q) = query.map(str::trim).filter(|q| !q.is_empty()) {
         form.push(("search_text".to_string(), q.to_string()));
     }

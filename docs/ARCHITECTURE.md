@@ -39,8 +39,10 @@ Search and collection expansion are extension-backend concerns. The frontend cal
 `GET …/calaworkshop/search` for `IPublishedFileService/QueryFiles` results and
 `POST …/calaworkshop/collections/preview` for
 `ISteamRemoteStorage/GetCollectionDetails`; collection install then creates normal
-download jobs for each child item. The helper still only knows how to download a
-single Workshop item with SteamCMD.
+download jobs for each child item. Search supports empty-query explore results,
+sort modes, item/collection mode, and tag filters discovered from returned Steam
+items. The helper still only knows how to download a single Workshop item with
+SteamCMD.
 
 ### Game presets & install rules
 

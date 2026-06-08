@@ -34,6 +34,7 @@ export default async (
     sort?: WorkshopSearchSort;
     cursor?: string | null;
     fileType?: WorkshopFileType;
+    tags?: string[];
   },
 ): Promise<WorkshopSearchResponse> => {
   const { data } = await axiosInstance.get(`/api/client/servers/${serverUuid}/calaworkshop/search`, {
@@ -43,6 +44,7 @@ export default async (
       sort: input.sort ?? 'popular',
       cursor: input.cursor ?? undefined,
       file_type: input.fileType ?? 'item',
+      tags: input.tags && input.tags.length > 0 ? input.tags.join(',') : undefined,
     },
   });
   return data;

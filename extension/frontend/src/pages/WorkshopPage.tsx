@@ -30,7 +30,11 @@ import importInstalled from '../api/importInstalled.ts';
 import installJob from '../api/installJob.ts';
 import listDownloads from '../api/listDownloads.ts';
 import listInstalled, { type InstalledEntry } from '../api/listInstalled.ts';
-import searchWorkshop, { type WorkshopSearchItem, type WorkshopSearchSort } from '../api/searchWorkshop.ts';
+import searchWorkshop, {
+  type WorkshopFileType,
+  type WorkshopSearchItem,
+  type WorkshopSearchSort,
+} from '../api/searchWorkshop.ts';
 import startDownload from '../api/startDownload.ts';
 import listAccounts from '../api/steam/listAccounts.ts';
 import ServerContentContainer from '@/elements/containers/ServerContentContainer.tsx';
@@ -95,6 +99,9 @@ export default function WorkshopPage() {
   const [installedLoading, setInstalledLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchSort, setSearchSort] = useState<WorkshopSearchSort>('popular');
+  const [searchFileType, setSearchFileType] = useState<WorkshopFileType>('item');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [showAllTags, setShowAllTags] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<WorkshopSearchItem[]>([]);
@@ -161,6 +168,20 @@ export default function WorkshopPage() {
   const auth = preset?.auth ?? 'default';
   const accountRequired = auth === 'account' || (auth === 'default' && config?.defaultAnonymous === false);
   const canUseGame = !!preset && !!installPath.trim();
+  const discoveredTags = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of searchResults) {
+      for (const tag of item.tags ?? []) {
+        const clean = tag.trim();
+        if (!clean) continue;
+        counts.set(clean, (counts.get(clean) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([tag]) => tag);
+  }, [searchResults]);
+  const visibleTags = showAllTags ? discoveredTags : discoveredTags.slice(0, 12);
 
   const pollJob = async (jobId: string, path: string) => {
     for (;;) {
@@ -245,7 +266,8 @@ export default function WorkshopPage() {
         query: searchQuery,
         sort: searchQuery.trim() ? searchSort : searchSort === 'relevance' ? 'popular' : searchSort,
         cursor,
-        fileType: 'item',
+        fileType: searchFileType,
+        tags: selectedTags,
       });
       setSearchResults((prev) => (cursor ? [...prev, ...result.items] : result.items));
       setNextCursor(result.nextCursor ?? null);
@@ -264,7 +286,37 @@ export default function WorkshopPage() {
     }, 400);
     return () => window.clearTimeout(timer);
     // biome-ignore lint/correctness/useExhaustiveDependencies: debounced search inputs only
-  }, [mode, preset?.appId, searchQuery, searchSort, config?.steamSearchAvailable]);
+  }, [mode, preset?.appId, searchQuery, searchSort, searchFileType, selectedTags.join('|'), config?.steamSearchAvailable]);
+
+  const toggleTag = (tag: string) => {
+    setSelectedTags((prev) => (prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag]));
+  };
+
+  const clearSearchFilters = () => {
+    setSearchQuery('');
+    setSearchSort('popular');
+    setSearchFileType('item');
+    setSelectedTags([]);
+    setShowAllTags(false);
+  };
+
+  const previewCollectionId = async (collectionId: number) => {
+    if (!preset) {
+      addToast('Select a game first', 'error');
+      return;
+    }
+    setCollectionLoading(true);
+    try {
+      setCollectionInput(String(collectionId));
+      setCollectionPreview(await previewCollection(server.uuid, { appId: preset.appId, collectionId }));
+      setMode('collection');
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+      setCollectionPreview(null);
+    } finally {
+      setCollectionLoading(false);
+    }
+  };
 
   const handleCollectionPreview = async () => {
     if (!preset) {
@@ -276,15 +328,7 @@ export default function WorkshopPage() {
       addToast('Could not read a collection ID from that input', 'error');
       return;
     }
-    setCollectionLoading(true);
-    try {
-      setCollectionPreview(await previewCollection(server.uuid, { appId: preset.appId, collectionId }));
-    } catch (err) {
-      addToast(httpErrorToHuman(err), 'error');
-      setCollectionPreview(null);
-    } finally {
-      setCollectionLoading(false);
-    }
+    await previewCollectionId(collectionId);
   };
 
   const handleCollectionInstall = async () => {
@@ -354,7 +398,7 @@ export default function WorkshopPage() {
   const stateColor = (state: string) =>
     state === 'installed' ? 'green' : state === 'failed' ? 'red' : state === 'ready' || state === 'installing' ? 'blue' : 'gray';
 
-  const renderWorkshopCard = (item: WorkshopSearchItem, action: 'install' | 'none' = 'install') => (
+  const renderWorkshopCard = (item: WorkshopSearchItem, action: 'install' | 'collection' | 'none' = 'install') => (
     <Card withBorder radius='md' padding='sm' key={item.publishedFileId}>
       <Stack gap='xs'>
         {item.previewUrl ? <Image src={item.previewUrl} height={120} fit='cover' radius='sm' /> : null}
@@ -363,10 +407,21 @@ export default function WorkshopPage() {
           {stars(item.stars)}{item.voteCount ? ` · ${item.voteCount} votes` : ''}{item.subscriptions ? ` · ${item.subscriptions.toLocaleString()} subs` : ''}
         </Text>
         {item.fileSize ? <Text size='xs' c='dimmed'>{formatBytes(item.fileSize)}</Text> : null}
+        {item.tags.length > 0 ? (
+          <Group gap={4}>
+            {item.tags.slice(0, 4).map((tag) => (
+              <Badge key={tag} size='xs' variant='light'>{tag}</Badge>
+            ))}
+          </Group>
+        ) : null}
         {item.shortDescription ? <Text size='xs' c='dimmed' lineClamp={3}>{item.shortDescription}</Text> : null}
         {action === 'install' ? (
           <Button size='xs' leftSection={<FontAwesomeIcon icon={faDownload} />} onClick={() => void startAndPoll(item.publishedFileId, item.title)}>
             Install
+          </Button>
+        ) : action === 'collection' ? (
+          <Button size='xs' leftSection={<FontAwesomeIcon icon={faSearch} />} onClick={() => void previewCollectionId(item.publishedFileId)}>
+            Preview collection
           </Button>
         ) : null}
       </Stack>
@@ -483,9 +538,62 @@ export default function WorkshopPage() {
                       ]}
                     />
                   </Group>
+                  <Group justify='space-between' align='end'>
+                    <SegmentedControl
+                      value={searchFileType}
+                      onChange={(v) => {
+                        setSearchFileType(v as WorkshopFileType);
+                        setSelectedTags([]);
+                        setShowAllTags(false);
+                      }}
+                      data={[
+                        { value: 'item', label: 'Items' },
+                        { value: 'collection', label: 'Collections' },
+                      ]}
+                    />
+                    <Button variant='subtle' size='xs' onClick={clearSearchFilters}>
+                      Reset filters
+                    </Button>
+                  </Group>
+                  {selectedTags.length > 0 || discoveredTags.length > 0 ? (
+                    <Stack gap={6}>
+                      {selectedTags.length > 0 ? (
+                        <Group gap={6}>
+                          <Text size='xs' c='dimmed'>Selected</Text>
+                          {selectedTags.map((tag) => (
+                            <Badge key={tag} variant='filled' onClick={() => toggleTag(tag)} style={{ cursor: 'pointer' }}>
+                              {tag}
+                            </Badge>
+                          ))}
+                        </Group>
+                      ) : null}
+                      {discoveredTags.length > 0 ? (
+                        <Group gap={6}>
+                          <Text size='xs' c='dimmed'>Tags</Text>
+                          {visibleTags.map((tag) => (
+                            <Badge
+                              key={tag}
+                              variant={selectedTags.includes(tag) ? 'filled' : 'light'}
+                              onClick={() => toggleTag(tag)}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              {tag}
+                            </Badge>
+                          ))}
+                          {discoveredTags.length > 12 ? (
+                            <Button variant='subtle' size='xs' onClick={() => setShowAllTags((v) => !v)}>
+                              {showAllTags ? 'Show fewer' : `Show ${discoveredTags.length - 12} more`}
+                            </Button>
+                          ) : null}
+                        </Group>
+                      ) : null}
+                    </Stack>
+                  ) : null}
                   {searchError ? <Alert color='red'>{searchError}</Alert> : null}
                   {searchLoading && searchResults.length === 0 ? <Loader size='sm' /> : null}
-                  <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>{searchResults.map((item) => renderWorkshopCard(item))}</SimpleGrid>
+                  <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }}>
+                    {searchResults.map((item) => renderWorkshopCard(item, searchFileType === 'collection' ? 'collection' : 'install'))}
+                  </SimpleGrid>
                   {nextCursor ? (
                     <Button variant='subtle' loading={searchLoading} onClick={() => void runSearch(nextCursor)} disabled={!canUseGame}>
                       Load more

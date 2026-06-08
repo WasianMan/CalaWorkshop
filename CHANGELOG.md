@@ -8,7 +8,8 @@ All notable changes to this project are documented here. Format loosely follows
 ### Added
 - Workshop search/explore UI backed by Steam `IPublishedFileService/QueryFiles`,
   including previews, sort modes, subscriptions, file sizes, vote counts, and star
-  ratings.
+  ratings. Search now loads default explore results for the selected game, supports
+  item/collection mode, and exposes discovered Steam tags as filters.
 - Collection preview and install flow backed by Steam
   `ISteamRemoteStorage/GetCollectionDetails`. Collection children are queued as
   ordinary download jobs so existing install/uninstall tracking still applies.
@@ -18,6 +19,7 @@ All notable changes to this project are documented here. Format loosely follows
 - The Workshop page now starts with no game selected unless app-id detection is
   high/medium confidence. Low-confidence detection is shown as a hint instead of
   silently defaulting to the first preset.
+- Fixed the 0.2.6-alpha.1 backend build error in Steam metadata preview handling.
 
 ## [0.2.5] - 2026-06-08
 

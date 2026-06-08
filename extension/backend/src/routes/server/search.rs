@@ -18,6 +18,7 @@ struct SearchQuery {
     sort: Option<String>,
     cursor: Option<String>,
     file_type: Option<String>,
+    tags: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -60,13 +61,24 @@ async fn search(
     let trimmed_query = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty());
     let sort = crate::steam::SearchSort::from_param(query.sort.as_deref(), trimmed_query.is_some());
     let file_type = crate::steam::MatchingFileType::from_param(query.file_type.as_deref());
+    let tags: Vec<String> = query
+        .tags
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .take(8)
+        .map(str::to_string)
+        .collect();
     let cache_key = format!(
-        "app={};q={};sort={};cursor={};type={}",
+        "app={};q={};sort={};cursor={};type={};tags={}",
         query.app_id,
         trimmed_query.unwrap_or(""),
         sort.cache_key(),
         query.cursor.as_deref().unwrap_or("").trim(),
-        file_type.cache_key()
+        file_type.cache_key(),
+        tags.join("|")
     );
 
     if let Some(cached) =
@@ -86,6 +98,7 @@ async fn search(
         sort,
         query.cursor.as_deref(),
         file_type,
+        &tags,
     )
     .await
     .map_err(|err| ApiResponse::error(format!("Steam search failed: {err:#}")))?;

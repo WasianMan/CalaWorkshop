@@ -21,7 +21,8 @@ games can be added through JSON presets.
 ## What Works
 
 - Paste Workshop URL/ID and install through Wings `files/pull`
-- Search/explore Workshop items and preview collections from the server Workshop tab
+- Search/explore Workshop items with previews, sort modes, discovered tag filters,
+  and collection preview from the server Workshop tab
 - Persistent download history and installed-item tracking
 - Managed/imported/unmanaged installed-content list
 - Precise uninstall of files tracked by this extension

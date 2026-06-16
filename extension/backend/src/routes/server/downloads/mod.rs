@@ -232,8 +232,8 @@ pub(crate) mod post {
             post_install,
             metadata,
             title_slug,
-            helper_url: ext.helper_url,
-            helper_token: ext.helper_token,
+            helper_url: ext.helper_url.to_string(),
+            helper_token: ext.helper_token.to_string(),
         })
     }
 

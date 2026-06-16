@@ -145,6 +145,8 @@ pub(crate) mod post {
             data.workshop_id,
             data.account.as_deref(),
             data.archive,
+            // Single direct download: fetch metadata (one Steam Web API call is fine).
+            None,
         )
         .await?;
 
@@ -171,6 +173,11 @@ pub(crate) mod post {
         app_id: u32,
         workshop_id: u64,
         account_label: Option<&str>,
+        // When provided (collection installs, retries), use this instead of a
+        // per-item Steam Web API lookup. Fetching metadata for every item in a
+        // 100+ item batch hammers Steam's web API and trips rate limits, so we
+        // reuse the title/preview already known from the collection preview row.
+        known_metadata: Option<crate::registry::WorkshopMetadata>,
     ) -> Result<ResolvedDispatch, shared::response::ApiResponse> {
         let ext = {
             let settings = state.settings.get().await?;
@@ -219,7 +226,10 @@ pub(crate) mod post {
             None => None,
         };
 
-        let metadata = get_metadata_cached(state, ext.steam_api_key.as_str(), workshop_id).await;
+        let metadata = match known_metadata {
+            Some(m) => m,
+            None => get_metadata_cached(state, ext.steam_api_key.as_str(), workshop_id).await,
+        };
         let title_slug = metadata
             .title
             .as_deref()
@@ -304,10 +314,19 @@ pub(crate) mod post {
         workshop_id: u64,
         account_label: Option<&str>,
         archive: bool,
+        // Optional pre-known metadata (skips a per-item Steam Web API call).
+        known_metadata: Option<crate::registry::WorkshopMetadata>,
     ) -> Result<Response, shared::response::ApiResponse> {
-        let resolved =
-            resolve_dispatch(state, permissions, user_uuid, app_id, workshop_id, account_label)
-                .await?;
+        let resolved = resolve_dispatch(
+            state,
+            permissions,
+            user_uuid,
+            app_id,
+            workshop_id,
+            account_label,
+            known_metadata,
+        )
+        .await?;
 
         let job = crate::registry::create_download(
             state.database.write(),
@@ -334,10 +353,18 @@ pub(crate) mod post {
         workshop_id: u64,
         account_label: Option<&str>,
         archive: bool,
+        known_metadata: Option<crate::registry::WorkshopMetadata>,
     ) -> Result<Response, shared::response::ApiResponse> {
-        let resolved =
-            resolve_dispatch(state, permissions, user_uuid, app_id, workshop_id, account_label)
-                .await?;
+        let resolved = resolve_dispatch(
+            state,
+            permissions,
+            user_uuid,
+            app_id,
+            workshop_id,
+            account_label,
+            known_metadata,
+        )
+        .await?;
 
         // Clear the prior failure so it shows as active again immediately.
         crate::registry::update_download_helper(
@@ -451,6 +478,12 @@ mod retry {
         let mut retried = 0usize;
         let mut still_failed = 0usize;
         for job in failed {
+            // Reuse the row's stored title/preview so retrying a big batch doesn't
+            // make a Steam Web API call per item.
+            let known = crate::registry::WorkshopMetadata {
+                title: job.title.clone(),
+                preview_url: job.preview_url.clone(),
+            };
             match super::post::retry_existing_job(
                 &state,
                 &permissions,
@@ -460,6 +493,7 @@ mod retry {
                 job.workshop_id as u64,
                 data.account.as_deref(),
                 false,
+                Some(known),
             )
             .await
             {
@@ -476,11 +510,48 @@ mod retry {
     }
 }
 
+mod cancel {
+    use axum::extract::Path;
+    use serde::Serialize;
+    use shared::{
+        GetState,
+        models::user::GetPermissionManager,
+        response::{ApiResponse, ApiResponseResult},
+    };
+    use utoipa::ToSchema;
+
+    #[derive(ToSchema, Serialize)]
+    struct Response {
+        /// How many in-flight jobs were marked failed/cancelled.
+        cancelled: u64,
+    }
+
+    /// Cancel every in-flight (queued/downloading) download job for this server by
+    /// marking it failed. Touches only the database — no helper or Steam calls —
+    /// so it's a safe way to clear a stuck backlog (e.g. after a helper restart).
+    #[utoipa::path(post, path = "/cancel", responses(
+        (status = OK, body = inline(Response)),
+    ), params(
+        ("server" = uuid::Uuid, description = "The server ID"),
+    ))]
+    pub async fn route(
+        state: GetState,
+        permissions: GetPermissionManager,
+        Path(server): Path<uuid::Uuid>,
+    ) -> ApiResponseResult {
+        permissions.has_server_permission("workshop.install")?;
+        let cancelled =
+            crate::registry::cancel_active_downloads(state.database.write(), server).await?;
+        ApiResponse::new_serialized(Response { cancelled }).ok()
+    }
+}
+
 pub fn router(state: &State) -> OpenApiRouter<State> {
     OpenApiRouter::new()
         .routes(routes!(get::route))
         .routes(routes!(post::route))
         .routes(routes!(retry::route))
+        .routes(routes!(cancel::route))
         .nest("/{download}", _download_::router(state))
         .with_state(state.clone())
 }

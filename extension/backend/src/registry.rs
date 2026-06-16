@@ -178,6 +178,26 @@ pub async fn count_history_downloads(
     Ok(row.get("n"))
 }
 
+/// Mark every in-flight (queued/downloading) job for a server as failed. Used by
+/// "cancel all active" to recover from a stuck backlog without touching the
+/// helper or Steam. Returns how many rows were cancelled.
+pub async fn cancel_active_downloads(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    server_uuid: uuid::Uuid,
+) -> Result<u64, sqlx::Error> {
+    let res = sqlx::query(
+        r#"
+        UPDATE dev_wasian_calaworkshop_download_jobs
+        SET state = 'failed', error = 'cancelled', updated_at = now()
+        WHERE server_uuid = $1 AND state IN ('queued', 'downloading')
+        "#,
+    )
+    .bind(server_uuid)
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected())
+}
+
 /// All currently-failed jobs for a server, used by "retry all failed".
 pub async fn list_failed_downloads(
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,

@@ -83,6 +83,13 @@ async fn install(
             });
             continue;
         }
+        // Reuse the title/preview already returned by the collection preview so we
+        // don't make a Steam Web API metadata call per child — that storm is what
+        // rate-limited big collections.
+        let known = crate::registry::WorkshopMetadata {
+            title: Some(item.title.clone()),
+            preview_url: item.preview_url.clone(),
+        };
         let job = super::downloads::post::start_download_for_item(
             &state,
             &permissions,
@@ -92,6 +99,7 @@ async fn install(
             item.published_file_id,
             data.account.as_deref(),
             false,
+            Some(known),
         )
         .await?;
         jobs.push(job);

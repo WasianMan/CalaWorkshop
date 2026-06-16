@@ -3,6 +3,27 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
+## [0.2.7-alpha.2] - 2026-06-16
+
+Hardening on top of alpha.1: closes the remaining ways a big (re)install could
+overload the panel or Steam, and adds a way to recover from a stuck backlog.
+
+### Added
+- **Cancel all active.** `POST /downloads/cancel` marks every queued/downloading
+  job failed (database-only, no helper/Steam calls) to clear a stuck backlog —
+  e.g. after a helper restart leaves jobs that can never complete. The Workshop
+  page exposes it as a "Cancel all" button.
+
+### Changed
+- Collection installs and retries no longer make a Steam **Web API** metadata call
+  per item — they reuse the title/preview already known from the collection
+  preview (or the stored job row). This removes a second rate-limit surface that
+  could 429 / error out on big batches independently of SteamCMD.
+- On page load, a large backlog of still-pending downloads (e.g. left over from a
+  crashed run) is no longer auto-polled immediately; the page shows a banner to
+  resume or cancel them, so opening the page can't stampede the backend. Per-job
+  polling also backs off further for very large active counts.
+
 ## [0.2.7-alpha.1] - 2026-06-16
 
 Prerelease focused on making large collections (100+ items) download reliably.

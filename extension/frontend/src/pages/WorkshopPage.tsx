@@ -22,6 +22,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { httpErrorToHuman } from '@/api/axios.ts';
 import { installCollection, previewCollection, type CollectionPreview } from '../api/collections.ts';
+import cancelDownloads from '../api/cancelDownloads.ts';
 import deleteDownload from '../api/deleteDownload.ts';
 import deleteInstalled from '../api/deleteInstalled.ts';
 import archiveInstalled from '../api/archiveInstalled.ts';
@@ -61,7 +62,14 @@ const PAGE_SIZE_OPTIONS = [5, 10, 15, 25];
 
 /** Slow per-job polling down as the active batch grows, to spare the backend. */
 const pollIntervalMs = (activeCount: number) =>
-  activeCount <= 10 ? 2000 : activeCount <= 40 ? 4000 : 6000;
+  activeCount <= 10 ? 2000 : activeCount <= 40 ? 4000 : activeCount <= 120 ? 6000 : 10000;
+
+/**
+ * Above this many in-flight jobs, don't auto-resume polling on page load — a
+ * large stale backlog (e.g. from a crashed run) would otherwise hammer the
+ * backend the instant the page opens. The user resumes or cancels explicitly.
+ */
+const RESUME_AUTOPOLL_LIMIT = 15;
 
 /** A download is "active" until it reaches a terminal state. */
 const TERMINAL_STATES = new Set(['installed', 'failed']);
@@ -139,6 +147,8 @@ export default function WorkshopPage() {
   const [removingAll, setRemovingAll] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [pendingResumeCount, setPendingResumeCount] = useState(0);
   const [archives, setArchives] = useState<WorkshopArchive[]>([]);
   const [selectedArchive, setSelectedArchive] = useState<string | null>(null);
 
@@ -301,7 +311,7 @@ export default function WorkshopPage() {
    * Load active jobs + one page of history from the server, seed the lists, and
    * resume polling any active job we aren't already tracking (e.g. after reload).
    */
-  const loadDownloads = async (page = historyPageRef.current) => {
+  const loadDownloads = async (page = historyPageRef.current, resume = false) => {
     let data;
     try {
       data = await listDownloads(server.uuid, page);
@@ -314,14 +324,51 @@ export default function WorkshopPage() {
     setHistoryPage(data.page);
     setHistoryPerPage(data.perPage);
     historyPageRef.current = data.page;
-    for (const job of data.active) {
+    // Only the resume path (page load / retry) may start NEW poll loops. Background
+    // refreshes (a job finishing, paging history) must not, or they'd re-spawn
+    // polls during a legit batch. A large backlog is gated behind a manual resume.
+    if (resume) {
+      const active = data.active.filter((job) => isActiveState(job.state));
+      if (active.length > RESUME_AUTOPOLL_LIMIT) {
+        setPendingResumeCount(active.length);
+      } else {
+        setPendingResumeCount(0);
+        for (const job of active) startPoll(job.id);
+      }
+    }
+  };
+
+  const resumePendingPolls = () => {
+    for (const job of jobs) {
       if (isActiveState(job.state)) startPoll(job.id);
+    }
+    setPendingResumeCount(0);
+  };
+
+  const handleCancelAll = async () => {
+    if (
+      !window.confirm(
+        'Cancel all active and queued downloads? They will be marked failed. Files already installed are not touched.',
+      )
+    ) {
+      return;
+    }
+    setCancelling(true);
+    try {
+      const n = await cancelDownloads(server.uuid);
+      addToast(`Cancelled ${n} active download${n === 1 ? '' : 's'}`, 'success');
+      setPendingResumeCount(0);
+      await loadDownloads(1, false);
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+    } finally {
+      setCancelling(false);
     }
   };
 
   // Initial load (and resume of in-flight jobs) once per server.
   useEffect(() => {
-    void loadDownloads(1);
+    void loadDownloads(1, true);
     // biome-ignore lint/correctness/useExhaustiveDependencies: load once per server
   }, [server.uuid]);
 
@@ -338,7 +385,7 @@ export default function WorkshopPage() {
           res.retried > 0 ? 'success' : 'warning',
         );
       }
-      await loadDownloads(1);
+      await loadDownloads(1, true);
     } catch (err) {
       addToast(httpErrorToHuman(err), 'error');
     } finally {
@@ -875,11 +922,37 @@ export default function WorkshopPage() {
           </Card>
         </ServerCan>
 
+        {pendingResumeCount > 0 ? (
+          <Alert color='yellow' title={`${pendingResumeCount} downloads pending from a previous session`}>
+            <Text size='sm' mb='xs'>
+              Polling was paused so a large backlog doesn't overload the panel on page load. Resume to
+              keep installing them, or cancel them all (already-installed files are untouched).
+            </Text>
+            <Group gap='xs'>
+              <ServerCan action='workshop.install'>
+                <Button size='xs' onClick={resumePendingPolls}>Resume</Button>
+              </ServerCan>
+              <ServerCan action='workshop.install'>
+                <Button size='xs' color='red' variant='light' loading={cancelling} onClick={handleCancelAll}>
+                  Cancel all
+                </Button>
+              </ServerCan>
+            </Group>
+          </Alert>
+        ) : null}
+
         {activeJobs.length > 0 ? (
           <Card withBorder radius='md' padding='lg'>
             <Group justify='space-between' mb='sm'>
               <Title order={4}>Downloading ({activeJobs.length})</Title>
-              <Text size='xs' c='dimmed'>Large collections are paced — items wait in “queued” until a download slot is free.</Text>
+              <Group gap='sm'>
+                <Text size='xs' c='dimmed'>Large collections are paced — items wait in “queued” until a download slot is free.</Text>
+                <ServerCan action='workshop.install'>
+                  <Button size='xs' color='red' variant='subtle' loading={cancelling} onClick={handleCancelAll}>
+                    Cancel all
+                  </Button>
+                </ServerCan>
+              </Group>
             </Group>
             <Table>
               <Table.Thead>

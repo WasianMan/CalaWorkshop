@@ -39,10 +39,13 @@ Search and collection expansion are extension-backend concerns. The frontend cal
 `GET …/calaworkshop/search` for `IPublishedFileService/QueryFiles` results and
 `POST …/calaworkshop/collections/preview` for
 `ISteamRemoteStorage/GetCollectionDetails`; collection install then creates normal
-download jobs for each child item. Search supports empty-query explore results,
-sort modes, item/collection mode, and tag filters discovered from returned Steam
-items. The helper still only knows how to download a single Workshop item with
-SteamCMD.
+download jobs for each child item (up to 500), skipping items already in the
+installed registry so a re-install only fetches what's missing. Search supports
+empty-query explore results, sort modes, item/collection mode, and tag filters
+discovered from returned Steam items. The helper still only knows how to download
+a single Workshop item with SteamCMD, but it now paces those downloads: at most
+`WORKSHOP_MAX_CONCURRENT` (default 3) run concurrently and the rest stay `queued`,
+which is what keeps a 100+ item collection from tripping Steam's rate limiter.
 
 ### Game presets & install rules
 

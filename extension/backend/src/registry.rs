@@ -113,7 +113,11 @@ pub async fn create_download(
     Ok(download_from_row(row))
 }
 
-pub async fn recent_downloads(
+/// In-flight jobs only: queued / downloading / ready (downloaded, awaiting
+/// install). Always returned in full (capped high) so a big batch never hides
+/// active work behind a page boundary. `ready` is treated as active because the
+/// frontend auto-installs it.
+pub async fn active_downloads(
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     server_uuid: uuid::Uuid,
 ) -> Result<Vec<DownloadJob>, sqlx::Error> {
@@ -121,11 +125,71 @@ pub async fn recent_downloads(
         r#"
         SELECT *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
         FROM dev_wasian_calaworkshop_download_jobs
-        WHERE server_uuid = $1
-        ORDER BY
-            CASE WHEN state IN ('queued', 'downloading', 'ready') THEN 0 ELSE 1 END,
-            updated_at DESC
-        LIMIT 50
+        WHERE server_uuid = $1 AND state IN ('queued', 'downloading', 'ready')
+        ORDER BY created_at ASC
+        LIMIT 1000
+        "#,
+    )
+    .bind(server_uuid)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(download_from_row).collect())
+}
+
+/// Terminal jobs (installed / failed), newest first, one page at a time.
+pub async fn history_downloads(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    server_uuid: uuid::Uuid,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<DownloadJob>, sqlx::Error> {
+    let rows = sqlx::query(
+        r#"
+        SELECT *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
+        FROM dev_wasian_calaworkshop_download_jobs
+        WHERE server_uuid = $1 AND state IN ('installed', 'failed')
+        ORDER BY updated_at DESC
+        LIMIT $2 OFFSET $3
+        "#,
+    )
+    .bind(server_uuid)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(download_from_row).collect())
+}
+
+/// Total count of terminal jobs, for paging the history list.
+pub async fn count_history_downloads(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    server_uuid: uuid::Uuid,
+) -> Result<i64, sqlx::Error> {
+    let row = sqlx::query(
+        r#"
+        SELECT COUNT(*) AS n
+        FROM dev_wasian_calaworkshop_download_jobs
+        WHERE server_uuid = $1 AND state IN ('installed', 'failed')
+        "#,
+    )
+    .bind(server_uuid)
+    .fetch_one(db)
+    .await?;
+    Ok(row.get("n"))
+}
+
+/// All currently-failed jobs for a server, used by "retry all failed".
+pub async fn list_failed_downloads(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    server_uuid: uuid::Uuid,
+) -> Result<Vec<DownloadJob>, sqlx::Error> {
+    let rows = sqlx::query(
+        r#"
+        SELECT *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
+        FROM dev_wasian_calaworkshop_download_jobs
+        WHERE server_uuid = $1 AND state = 'failed'
+        ORDER BY updated_at DESC
+        LIMIT 1000
         "#,
     )
     .bind(server_uuid)
@@ -379,6 +443,43 @@ pub async fn put_cache_json(
     .execute(db)
     .await?;
     Ok(())
+}
+
+/// Namespace + per-server key for archive manifests stored in the cache table.
+pub const ARCHIVE_MANIFEST_NS: &str = "archive_manifest";
+
+pub fn archive_manifest_key(server_uuid: uuid::Uuid, file: &str) -> String {
+    format!("{server_uuid}:{file}")
+}
+
+/// List a server's stored archive manifests (newest first), as `(file, value)`
+/// pairs. The cache key is `{server_uuid}:{file}`; only this server's rows are
+/// returned.
+pub async fn list_archive_manifests(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    server_uuid: uuid::Uuid,
+) -> Result<Vec<(String, serde_json::Value)>, sqlx::Error> {
+    let prefix = format!("{server_uuid}:");
+    let rows = sqlx::query(
+        r#"
+        SELECT cache_key, value
+        FROM dev_wasian_calaworkshop_steam_cache
+        WHERE namespace = $1 AND cache_key LIKE $2 || '%' AND expires_at > now()
+        ORDER BY updated_at DESC
+        "#,
+    )
+    .bind(ARCHIVE_MANIFEST_NS)
+    .bind(&prefix)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let key: String = row.get("cache_key");
+            let file = key.strip_prefix(&prefix).unwrap_or(&key).to_string();
+            (file, row.get("value"))
+        })
+        .collect())
 }
 
 fn ext_is(file: &str, ext: &str) -> bool {

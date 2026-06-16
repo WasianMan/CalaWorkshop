@@ -155,7 +155,7 @@ install. See [CONTRIBUTING.md](./CONTRIBUTING.md) for more detail.
 
 ## Version
 
-Current release: **v0.2.6**
+Current release: **v0.2.7-alpha.1** (prerelease)
 Changelog: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Screenshots

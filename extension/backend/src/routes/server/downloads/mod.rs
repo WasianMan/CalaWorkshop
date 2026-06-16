@@ -4,8 +4,8 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 mod _download_;
 
 mod get {
-    use axum::extract::Path;
-    use serde::Serialize;
+    use axum::extract::{Path, Query};
+    use serde::{Deserialize, Serialize};
     use shared::{
         GetState,
         models::user::GetPermissionManager,
@@ -13,26 +13,74 @@ mod get {
     };
     use utoipa::ToSchema;
 
+    const DEFAULT_PER_PAGE: i64 = 25;
+    const MAX_PER_PAGE: i64 = 100;
+
+    #[derive(Deserialize, utoipa::IntoParams)]
+    #[into_params(parameter_in = Query)]
+    pub struct ListQuery {
+        /// 1-based history page. Active jobs are always returned in full.
+        #[serde(default)]
+        page: Option<i64>,
+        /// History rows per page (clamped 1..=100).
+        #[serde(default)]
+        per_page: Option<i64>,
+    }
+
     #[derive(ToSchema, Serialize)]
     struct Response {
+        /// In-flight jobs (queued / downloading / ready), always returned in full.
+        #[schema(value_type = Vec<Object>)]
+        active: Vec<crate::registry::DownloadJob>,
+        /// One page of terminal jobs (installed / failed), newest first.
+        #[schema(value_type = Vec<Object>)]
+        history: Vec<crate::registry::DownloadJob>,
+        /// Total terminal jobs, for pagination.
+        history_total: i64,
+        page: i64,
+        per_page: i64,
+        /// Back-compat alias of `active` for older clients. Deprecated.
         #[schema(value_type = Vec<Object>)]
         jobs: Vec<crate::registry::DownloadJob>,
     }
 
-    /// List active and recent persisted Workshop download jobs for this server.
+    /// List Workshop download jobs for this server: all active jobs plus a page
+    /// of terminal history. Active jobs are never paged out so a large batch
+    /// stays fully visible.
     #[utoipa::path(get, path = "/", responses(
         (status = OK, body = inline(Response)),
     ), params(
+        ListQuery,
         ("server" = uuid::Uuid, description = "The server ID"),
     ))]
     pub async fn route(
         state: GetState,
         permissions: GetPermissionManager,
         Path(server): Path<uuid::Uuid>,
+        Query(q): Query<ListQuery>,
     ) -> ApiResponseResult {
         permissions.has_server_permission("workshop.read")?;
-        let jobs = crate::registry::recent_downloads(state.database.read(), server).await?;
-        ApiResponse::new_serialized(Response { jobs }).ok()
+
+        let page = q.page.unwrap_or(1).max(1);
+        let per_page = q.per_page.unwrap_or(DEFAULT_PER_PAGE).clamp(1, MAX_PER_PAGE);
+        let offset = (page - 1) * per_page;
+
+        let active = crate::registry::active_downloads(state.database.read(), server).await?;
+        let history =
+            crate::registry::history_downloads(state.database.read(), server, per_page, offset)
+                .await?;
+        let history_total =
+            crate::registry::count_history_downloads(state.database.read(), server).await?;
+
+        ApiResponse::new_serialized(Response {
+            jobs: active.clone(),
+            active,
+            history,
+            history_total,
+            page,
+            per_page,
+        })
+        .ok()
     }
 }
 
@@ -103,17 +151,27 @@ pub(crate) mod post {
         ApiResponse::new_serialized(resp).ok()
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub async fn start_download_for_item(
+    /// Everything needed to dispatch a download, resolved from settings + the
+    /// requested account. Shared by the first download and the retry path so the
+    /// account/install-rule resolution lives in exactly one place.
+    struct ResolvedDispatch {
+        install_rule: crate::helper::InstallRulePayload,
+        account: Option<String>,
+        post_install: &'static str,
+        metadata: crate::registry::WorkshopMetadata,
+        title_slug: Option<String>,
+        helper_url: String,
+        helper_token: String,
+    }
+
+    async fn resolve_dispatch(
         state: &GetState,
         permissions: &GetPermissionManager,
         user_uuid: uuid::Uuid,
-        server_uuid: uuid::Uuid,
         app_id: u32,
         workshop_id: u64,
         account_label: Option<&str>,
-        archive: bool,
-    ) -> Result<Response, shared::response::ApiResponse> {
+    ) -> Result<ResolvedDispatch, shared::response::ApiResponse> {
         let ext = {
             let settings = state.settings.get().await?;
             settings
@@ -167,28 +225,43 @@ pub(crate) mod post {
             .as_deref()
             .map(slugify_title)
             .filter(|slug| !slug.is_empty());
-        let job = crate::registry::create_download(
-            state.database.write(),
-            server_uuid,
-            app_id,
-            workshop_id,
-            metadata,
-            post_install,
-        )
-        .await?;
 
-        let helper =
-            crate::helper::HelperClient::new(&state.client, &ext.helper_url, &ext.helper_token)
-                .ok_or_else(|| ApiResponse::error("workshop helper is not configured"))?;
+        Ok(ResolvedDispatch {
+            install_rule,
+            account,
+            post_install,
+            metadata,
+            title_slug,
+            helper_url: ext.helper_url,
+            helper_token: ext.helper_token,
+        })
+    }
+
+    /// POST the resolved request to the helper and reconcile the given (already
+    /// persisted) job row with the outcome.
+    async fn dispatch_to_helper(
+        state: &GetState,
+        resolved: &ResolvedDispatch,
+        job_id: uuid::Uuid,
+        app_id: u32,
+        workshop_id: u64,
+        archive: bool,
+    ) -> Result<Response, shared::response::ApiResponse> {
+        let helper = crate::helper::HelperClient::new(
+            &state.client,
+            &resolved.helper_url,
+            &resolved.helper_token,
+        )
+        .ok_or_else(|| ApiResponse::error("workshop helper is not configured"))?;
 
         let resp = match helper
             .start_download(&crate::helper::DownloadRequest {
                 app_id,
                 workshop_id,
-                account,
+                account: resolved.account.clone(),
                 archive,
-                title_slug,
-                install_rule,
+                title_slug: resolved.title_slug.clone(),
+                install_rule: resolved.install_rule.clone(),
             })
             .await
         {
@@ -196,7 +269,7 @@ pub(crate) mod post {
             Err(err) => {
                 crate::registry::update_download_helper(
                     state.database.write(),
-                    job.id,
+                    job_id,
                     None,
                     "failed",
                     Some(format!("{err:#}")),
@@ -208,7 +281,7 @@ pub(crate) mod post {
 
         crate::registry::update_download_helper(
             state.database.write(),
-            job.id,
+            job_id,
             Some(resp.id),
             &resp.state,
             None,
@@ -216,9 +289,67 @@ pub(crate) mod post {
         .await?;
 
         Ok(Response {
-            job_id: job.id,
+            job_id,
             state: resp.state,
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn start_download_for_item(
+        state: &GetState,
+        permissions: &GetPermissionManager,
+        user_uuid: uuid::Uuid,
+        server_uuid: uuid::Uuid,
+        app_id: u32,
+        workshop_id: u64,
+        account_label: Option<&str>,
+        archive: bool,
+    ) -> Result<Response, shared::response::ApiResponse> {
+        let resolved =
+            resolve_dispatch(state, permissions, user_uuid, app_id, workshop_id, account_label)
+                .await?;
+
+        let job = crate::registry::create_download(
+            state.database.write(),
+            server_uuid,
+            app_id,
+            workshop_id,
+            resolved.metadata.clone(),
+            resolved.post_install,
+        )
+        .await?;
+
+        dispatch_to_helper(state, &resolved, job.id, app_id, workshop_id, archive).await
+    }
+
+    /// Re-dispatch an existing (failed) job row instead of creating a new one,
+    /// resetting it back to `queued` first. Used by "retry all failed".
+    #[allow(clippy::too_many_arguments)]
+    pub async fn retry_existing_job(
+        state: &GetState,
+        permissions: &GetPermissionManager,
+        user_uuid: uuid::Uuid,
+        job_id: uuid::Uuid,
+        app_id: u32,
+        workshop_id: u64,
+        account_label: Option<&str>,
+        archive: bool,
+    ) -> Result<Response, shared::response::ApiResponse> {
+        let resolved =
+            resolve_dispatch(state, permissions, user_uuid, app_id, workshop_id, account_label)
+                .await?;
+
+        // Clear the prior failure so it shows as active again immediately.
+        crate::registry::update_download_helper(
+            state.database.write(),
+            job_id,
+            None,
+            "queued",
+            None,
+        )
+        .await?;
+
+        dispatch_to_helper(state, &resolved, job_id, app_id, workshop_id, archive).await
     }
 
     pub fn slugify_title(title: &str) -> String {
@@ -274,10 +405,82 @@ pub(crate) mod post {
     }
 }
 
+mod retry {
+    use axum::extract::Path;
+    use serde::{Deserialize, Serialize};
+    use shared::{
+        GetState,
+        models::user::{GetPermissionManager, GetUser},
+        response::{ApiResponse, ApiResponseResult},
+    };
+    use utoipa::ToSchema;
+
+    #[derive(ToSchema, Deserialize, Default)]
+    pub struct Payload {
+        /// Linked Steam account label to retry as, or null for anonymous. Applies
+        /// to every retried item (the original per-item account isn't persisted).
+        #[serde(default)]
+        account: Option<String>,
+    }
+
+    #[derive(ToSchema, Serialize)]
+    struct Response {
+        /// How many failed jobs were successfully re-queued on the helper.
+        retried: usize,
+        /// How many could not be re-dispatched (left as failed).
+        still_failed: usize,
+    }
+
+    /// Re-dispatch every failed download job for this server. Each job's existing
+    /// row is reused (reset to `queued`), so retrying does not pile up duplicates.
+    #[utoipa::path(post, path = "/retry", responses(
+        (status = OK, body = inline(Response)),
+    ), params(
+        ("server" = uuid::Uuid, description = "The server ID"),
+    ), request_body = inline(Payload))]
+    pub async fn route(
+        state: GetState,
+        permissions: GetPermissionManager,
+        user: GetUser,
+        Path(server): Path<uuid::Uuid>,
+        shared::Payload(data): shared::Payload<Payload>,
+    ) -> ApiResponseResult {
+        permissions.has_server_permission("workshop.install")?;
+
+        let failed = crate::registry::list_failed_downloads(state.database.read(), server).await?;
+        let mut retried = 0usize;
+        let mut still_failed = 0usize;
+        for job in failed {
+            match super::post::retry_existing_job(
+                &state,
+                &permissions,
+                user.uuid,
+                job.id,
+                job.app_id as u32,
+                job.workshop_id as u64,
+                data.account.as_deref(),
+                false,
+            )
+            .await
+            {
+                Ok(_) => retried += 1,
+                Err(_) => still_failed += 1,
+            }
+        }
+
+        ApiResponse::new_serialized(Response {
+            retried,
+            still_failed,
+        })
+        .ok()
+    }
+}
+
 pub fn router(state: &State) -> OpenApiRouter<State> {
     OpenApiRouter::new()
         .routes(routes!(get::route))
         .routes(routes!(post::route))
+        .routes(routes!(retry::route))
         .nest("/{download}", _download_::router(state))
         .with_state(state.clone())
 }

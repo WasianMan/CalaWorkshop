@@ -3,6 +3,41 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
+## [0.2.7-alpha.1] - 2026-06-16
+
+Prerelease focused on making large collections (100+ items) download reliably.
+
+### Added
+- **Paced downloads.** The helper now caps how many SteamCMD downloads run at
+  once (env `WORKSHOP_MAX_CONCURRENT`, default 3); the rest stay `queued` until a
+  slot frees. This stops large collections from spawning dozens of SteamCMD
+  processes at once and tripping Steam's rate limiter.
+- **Automatic retries.** Transient download failures (rate limit, dropped
+  connection, timeout) are retried with backoff before a job is marked failed.
+  Permanent failures (no subscription, invalid item, missing session) still fail
+  fast.
+- **Retry failed.** A new action re-dispatches every failed download job for a
+  server (`POST /downloads/retry`), reusing existing rows so retries don't pile up
+  duplicates.
+- **Download-missing-only collection installs.** Re-installing a collection now
+  skips items already in the installed registry and reports them as skipped, so a
+  half-finished batch can be resumed by simply installing the collection again.
+- **Archive / restore / remove-all for installed content.** Compress all tracked
+  Workshop content into a named `.tar.gz` at the server root
+  (`POST /installed/archive`), list created archives (`GET /installed/archives`),
+  restore one back into the volume and re-track its items
+  (`POST /installed/restore`), or delete everything (`POST /installed/remove-all`).
+
+### Changed
+- The collection install cap was raised from 100 to 500 items.
+- The downloads list (`GET /downloads`) now returns all active jobs plus a
+  paginated history of terminal jobs, instead of a single 50-row list — active
+  downloads in a big batch are never hidden behind completed ones, and the
+  Workshop page renders them as separate "Downloading" and "Download history"
+  sections. Reloading the page resumes polling of in-flight jobs.
+- The Workshop page slows its per-job status polling as the active batch grows, to
+  spare the panel backend during large installs.
+
 ## [0.2.6] - 2026-06-08
 
 ### Added

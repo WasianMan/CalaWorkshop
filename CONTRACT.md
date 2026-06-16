@@ -91,6 +91,12 @@ Response `202 Accepted`:
 }
 ```
 
+A job stays `queued` until a download slot is free: the helper runs at most
+`WORKSHOP_MAX_CONCURRENT` (default 3) SteamCMD downloads at once and queues the
+rest, so a large collection paces itself instead of launching every download
+immediately. Transient SteamCMD failures (rate limit / connection / timeout) are
+retried with backoff before the job transitions to `failed`.
+
 ### `GET /jobs/{id}`
 Poll a job.
 

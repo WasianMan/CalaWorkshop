@@ -45,6 +45,7 @@ Errors are JSON `{ "error": "message" }` with `401`/`403`/`404`/`409`/`4xx`/`5xx
 | `WORKSHOP_HELPER_BIND`  | `0.0.0.0:8090` | Listen address. |
 | `WORKSHOP_DATA_DIR`     | `/data`        | Holds `jobs/<id>/` artifacts and `steam/<label-or-anonymous>/` workdirs. |
 | `STEAMCMD_BIN`          | `steamcmd`     | Path to the steamcmd executable / `.sh`. |
+| `WORKSHOP_MAX_CONCURRENT` | `3`          | Max steamcmd downloads run at once; extra jobs stay `queued`. Paces large collections so Steam doesn't rate-limit. Min 1. |
 
 `RUST_LOG` controls tracing (defaults to `info,calaworkshop_helper=debug`).
 

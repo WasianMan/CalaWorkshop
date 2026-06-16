@@ -206,6 +206,279 @@ async fn remove(
     ApiResponse::new_serialized(serde_json::json!({ "deleted": result.deleted })).ok()
 }
 
+/// Stored per archive so a later restore can re-create managed registry rows.
+#[derive(Serialize, Deserialize)]
+struct ArchiveManifestItem {
+    app_id: i32,
+    workshop_id: Option<i64>,
+    title: Option<String>,
+    install_path: String,
+    files: Vec<String>,
+    source: String,
+}
+
+#[derive(Deserialize)]
+struct ArchivePayload {
+    /// Optional archive file name. Sanitized; `.tar.gz` is appended if missing.
+    #[serde(default)]
+    name: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RestorePayload {
+    /// Archive file name (as returned by `GET /installed/archives`).
+    file: String,
+}
+
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Make a user-supplied archive name safe and ensure it ends in `.tar.gz`.
+fn sanitize_archive_name(raw: &str) -> String {
+    let base = raw.rsplit(['/', '\\']).next().unwrap_or(raw).trim();
+    let cleaned: String = base
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let stem = cleaned.trim_matches(['.', '_']);
+    let stem = if stem.is_empty() {
+        format!("calaworkshop-archive-{}", now_unix())
+    } else {
+        stem.to_string()
+    };
+    if stem.to_ascii_lowercase().ends_with(".tar.gz") {
+        stem
+    } else {
+        format!("{stem}.tar.gz")
+    }
+}
+
+async fn archive_all(
+    state: GetState,
+    permissions: GetPermissionManager,
+    server: GetServer,
+    Path(server_uuid): Path<uuid::Uuid>,
+    shared::Payload(data): shared::Payload<ArchivePayload>,
+) -> ApiResponseResult {
+    // Backing up files to the volume is a write; gate it on install rights.
+    permissions.has_server_permission("workshop.install")?;
+
+    let items = crate::registry::list_installed(state.database.read(), server_uuid).await?;
+
+    // Gather every tracked file as a path relative to the server root, so a
+    // single archive can span items that live under different install paths.
+    let mut files: Vec<compact_str::CompactString> = Vec::new();
+    let mut seen = HashSet::new();
+    for item in &items {
+        let base = item.install_path.trim_matches('/');
+        for file in &item.files {
+            let rel = if base.is_empty() {
+                file.clone()
+            } else {
+                format!("{base}/{file}")
+            };
+            if seen.insert(rel.clone()) {
+                files.push(rel.into());
+            }
+        }
+    }
+    if files.is_empty() {
+        return ApiResponse::error("no tracked Workshop content to archive")
+            .with_status(StatusCode::BAD_REQUEST)
+            .ok();
+    }
+
+    let file_name = match data.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        Some(n) => sanitize_archive_name(n),
+        None => format!("calaworkshop-archive-{}.tar.gz", now_unix()),
+    };
+
+    let node = server.node.fetch_cached(&state.database).await?;
+    let api = node.api_client(&state.database).await?;
+    api.post_servers_server_files_compress(
+        server.uuid,
+        &wings_api::servers_server_files_compress::post::RequestBody {
+            format: wings_api::ArchiveFormat::TarGz,
+            name: Some(file_name.clone().into()),
+            root: "/".into(),
+            files,
+            foreground: true,
+        },
+    )
+    .await?;
+
+    // Persist a manifest (per-server, ~10y TTL) so restore can re-track items.
+    let manifest_items: Vec<ArchiveManifestItem> = items
+        .iter()
+        .map(|it| ArchiveManifestItem {
+            app_id: it.app_id,
+            workshop_id: it.workshop_id,
+            title: it.title.clone(),
+            install_path: it.install_path.clone(),
+            files: it.files.clone(),
+            source: it.source.clone(),
+        })
+        .collect();
+    let manifest = serde_json::json!({
+        "name": file_name,
+        "items": manifest_items,
+        "created_unix": now_unix(),
+    });
+    let _ = crate::registry::put_cache_json(
+        state.database.write(),
+        crate::registry::ARCHIVE_MANIFEST_NS,
+        &crate::registry::archive_manifest_key(server_uuid, &file_name),
+        &manifest,
+        60 * 60 * 24 * 3650,
+    )
+    .await;
+
+    ApiResponse::new_serialized(serde_json::json!({ "archived": items.len(), "file": file_name }))
+        .ok()
+}
+
+async fn list_archives(
+    state: GetState,
+    permissions: GetPermissionManager,
+    Path(server_uuid): Path<uuid::Uuid>,
+) -> ApiResponseResult {
+    permissions.has_server_permission("workshop.read")?;
+    let manifests =
+        crate::registry::list_archive_manifests(state.database.read(), server_uuid).await?;
+    let archives: Vec<serde_json::Value> = manifests
+        .into_iter()
+        .map(|(file, value)| {
+            let item_count = value
+                .get("items")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            let created_unix = value.get("created_unix").and_then(|v| v.as_u64()).unwrap_or(0);
+            serde_json::json!({ "file": file, "item_count": item_count, "created_unix": created_unix })
+        })
+        .collect();
+    ApiResponse::new_serialized(serde_json::json!({ "archives": archives })).ok()
+}
+
+async fn restore(
+    state: GetState,
+    permissions: GetPermissionManager,
+    server: GetServer,
+    Path(server_uuid): Path<uuid::Uuid>,
+    shared::Payload(data): shared::Payload<RestorePayload>,
+) -> ApiResponseResult {
+    permissions.has_server_permission("workshop.install")?;
+
+    let file = data.file.trim().to_string();
+    if file.is_empty() || file.contains('/') || file.contains('\\') {
+        return ApiResponse::error("invalid archive file name")
+            .with_status(StatusCode::BAD_REQUEST)
+            .ok();
+    }
+
+    // Unpack the archive back into the volume root.
+    let node = server.node.fetch_cached(&state.database).await?;
+    let api = node.api_client(&state.database).await?;
+    api.post_servers_server_files_decompress(
+        server.uuid,
+        &wings_api::servers_server_files_decompress::post::RequestBody {
+            root: "/".into(),
+            file: file.clone().into(),
+            foreground: true,
+        },
+    )
+    .await?;
+
+    // Re-create managed registry rows from the stored manifest (if any), skipping
+    // items already tracked so a partial restore doesn't duplicate.
+    let mut restored = 0usize;
+    if let Some(value) = crate::registry::get_cache_json(
+        state.database.read(),
+        crate::registry::ARCHIVE_MANIFEST_NS,
+        &crate::registry::archive_manifest_key(server_uuid, &file),
+    )
+    .await?
+    {
+        if let Some(items) = value.get("items").cloned() {
+            if let Ok(list) = serde_json::from_value::<Vec<ArchiveManifestItem>>(items) {
+                let existing: HashSet<i64> =
+                    crate::registry::list_installed(state.database.read(), server_uuid)
+                        .await?
+                        .into_iter()
+                        .filter_map(|i| i.workshop_id)
+                        .collect();
+                for it in list {
+                    if let Some(wid) = it.workshop_id {
+                        if existing.contains(&wid) {
+                            continue;
+                        }
+                    }
+                    crate::registry::create_installed(
+                        state.database.write(),
+                        server_uuid,
+                        it.app_id as u32,
+                        it.workshop_id.map(|w| w as u64),
+                        it.title,
+                        &it.install_path,
+                        it.files,
+                        &it.source,
+                    )
+                    .await?;
+                    restored += 1;
+                }
+            }
+        }
+    }
+
+    ApiResponse::new_serialized(serde_json::json!({ "restored": restored, "file": file })).ok()
+}
+
+async fn remove_all(
+    state: GetState,
+    permissions: GetPermissionManager,
+    server: GetServer,
+    Path(server_uuid): Path<uuid::Uuid>,
+) -> ApiResponseResult {
+    permissions.has_server_permission("workshop.remove")?;
+
+    let items = crate::registry::list_installed(state.database.read(), server_uuid).await?;
+    if items.is_empty() {
+        return ApiResponse::new_serialized(serde_json::json!({ "removed": 0 })).ok();
+    }
+
+    let node = server.node.fetch_cached(&state.database).await?;
+    let api = node.api_client(&state.database).await?;
+
+    let mut removed = 0usize;
+    for item in items {
+        // Best-effort file delete: even if the files are already gone we still
+        // want to clear the registry row so the list reflects reality.
+        let _ = api
+            .post_servers_server_files_delete(
+                server.uuid,
+                &wings_api::servers_server_files_delete::post::RequestBody {
+                    root: item.install_path.clone().into(),
+                    files: item.files.iter().cloned().map(Into::into).collect(),
+                },
+            )
+            .await;
+        crate::registry::delete_installed(state.database.write(), server_uuid, item.id).await?;
+        removed += 1;
+    }
+
+    ApiResponse::new_serialized(serde_json::json!({ "removed": removed })).ok()
+}
+
 async fn preview(
     state: GetState,
     permissions: GetPermissionManager,
@@ -406,6 +679,10 @@ pub fn router(state: &State) -> OpenApiRouter<State> {
     OpenApiRouter::new()
         .route("/", routing::get(list))
         .route("/import", routing::post(import))
+        .route("/archive", routing::post(archive_all))
+        .route("/archives", routing::get(list_archives))
+        .route("/restore", routing::post(restore))
+        .route("/remove-all", routing::post(remove_all))
         .route("/{installed_id}", routing::delete(remove))
         .route("/{installed_id}/preview", routing::get(preview))
         .with_state(state.clone())

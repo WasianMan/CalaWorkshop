@@ -20,7 +20,7 @@ pub struct DownloadRequest {
 }
 
 /// Wire shape the helper expects: match rules plus optional generated files.
-#[derive(Serialize, Default)]
+#[derive(Serialize, Default, Clone)]
 pub struct InstallRulePayload {
     #[serde(rename = "match")]
     pub matchers: Vec<crate::settings::MatchRule>,

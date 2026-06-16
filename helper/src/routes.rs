@@ -194,6 +194,24 @@ async fn run_download(
     workshop_id: u64,
     install_rule: crate::steamcmd::InstallRule,
 ) {
+    // Wait for a download slot. The job stays `queued` while blocked here, which
+    // is exactly how a big collection gets paced: only `max_concurrent` jobs hold
+    // a permit (and run steamcmd) at once; the rest queue. The permit is released
+    // when `_permit` drops at the end of this function.
+    let _permit = match state.download_slots.clone().acquire_owned().await {
+        Ok(permit) => permit,
+        Err(_) => {
+            // Semaphore closed only on shutdown; treat as a failed job.
+            state
+                .update_job(&id, |j| {
+                    j.state = JobState::Failed;
+                    j.error = Some("helper is shutting down".to_string());
+                })
+                .await;
+            return;
+        }
+    };
+
     state
         .update_job(&id, |j| j.state = JobState::Downloading)
         .await;
@@ -263,8 +281,15 @@ async fn do_download(
         anyhow::bail!("no cached session for account '{label}' — call POST /accounts/login first");
     }
 
-    let content =
-        steamcmd::download_item(config, &workdir, username.as_deref(), app_id, workshop_id).await?;
+    let content = download_with_retry(
+        config,
+        &workdir,
+        username.as_deref(),
+        app_id,
+        workshop_id,
+        id,
+    )
+    .await?;
 
     // Prepare the job artifact dir.
     let job_dir = config.job_dir(&id);
@@ -302,6 +327,74 @@ async fn do_download(
             .collect();
         Ok((file_name, files, size))
     }
+}
+
+/// How many times to attempt a single item's steamcmd download before giving up.
+const DOWNLOAD_ATTEMPTS: usize = 4;
+/// Backoff applied *before* each retry (index 0 is the wait before attempt #2).
+/// Kept moderate so a retrying worker doesn't hold its slot too long; anything
+/// still failing after this is left for the extension's "retry failed" action.
+const RETRY_BACKOFF: [u64; 3] = [3, 8, 20];
+
+/// Run `steamcmd::download_item` with bounded retries on *transient* failures
+/// (Steam rate limits, dropped connections, timeouts). Permanent failures
+/// (no subscription, invalid item, missing session) fail fast without retrying.
+async fn download_with_retry(
+    config: &crate::config::Config,
+    workdir: &Path,
+    username: Option<&str>,
+    app_id: u64,
+    workshop_id: u64,
+    id: Uuid,
+) -> anyhow::Result<std::path::PathBuf> {
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 0..DOWNLOAD_ATTEMPTS {
+        match steamcmd::download_item(config, workdir, username, app_id, workshop_id).await {
+            Ok(content) => return Ok(content),
+            Err(err) => {
+                let transient = is_transient_error(&format!("{err:#}"));
+                let last_attempt = attempt + 1 >= DOWNLOAD_ATTEMPTS;
+                if !transient || last_attempt {
+                    if transient {
+                        tracing::warn!(%id, attempt = attempt + 1, error = %format!("{err:#}"), "transient download error, retries exhausted");
+                    }
+                    return Err(err);
+                }
+                let wait = RETRY_BACKOFF[attempt.min(RETRY_BACKOFF.len() - 1)];
+                tracing::warn!(%id, attempt = attempt + 1, wait_secs = wait, error = %format!("{err:#}"), "transient download error, backing off then retrying");
+                last_err = Some(err);
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("steamcmd download failed")))
+}
+
+/// Heuristic: does this steamcmd error look like a retry-worthy transient
+/// condition (rate limiting / connectivity) rather than a permanent one?
+fn is_transient_error(msg: &str) -> bool {
+    let lower = msg.to_lowercase();
+    // Permanent conditions: never worth retrying.
+    if lower.contains("no subscription")
+        || lower.contains("invalid")
+        || lower.contains("no cached session")
+        || lower.contains("matched no files")
+        || lower.contains("not found")
+    {
+        return false;
+    }
+    lower.contains("rate limit")
+        || lower.contains("rate-limit")
+        || lower.contains("no connection")
+        || lower.contains("timeout")
+        || lower.contains("timed out")
+        || lower.contains("connection reset")
+        || lower.contains("try again")
+        || lower.contains("temporarily")
+        // steamcmd frequently reports a throttled workshop download as a bare
+        // "(Failure)" with no detail; treat that as transient too.
+        || lower.contains("(failure)")
+        || lower.contains("failed (failure)")
 }
 
 // ---------------------------------------------------------------------------

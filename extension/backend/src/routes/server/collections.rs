@@ -18,6 +18,9 @@ struct CollectionPayload {
     collection_id: u64,
     #[serde(default)]
     account: Option<String>,
+    /// Install destination, persisted on each job so installs survive a reload.
+    #[serde(default)]
+    install_path: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -100,6 +103,7 @@ async fn install(
             data.account.as_deref(),
             false,
             Some(known),
+            data.install_path.as_deref(),
         )
         .await?;
         jobs.push(job);

@@ -93,12 +93,16 @@ pub async fn create_download(
     workshop_id: u64,
     metadata: WorkshopMetadata,
     post_install: &str,
+    // Intended install destination, persisted now so the install step (which can
+    // run much later — e.g. after a page reload) doesn't depend on transient UI
+    // state. `None` falls back to the path supplied at install time.
+    install_path: Option<&str>,
 ) -> Result<DownloadJob, sqlx::Error> {
     let row = sqlx::query(
         r#"
         INSERT INTO dev_wasian_calaworkshop_download_jobs
-            (server_uuid, app_id, workshop_id, state, title, preview_url, post_install)
-        VALUES ($1, $2, $3, 'queued', $4, $5, $6)
+            (server_uuid, app_id, workshop_id, state, title, preview_url, post_install, install_path)
+        VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7)
         RETURNING *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
         "#,
     )
@@ -108,6 +112,7 @@ pub async fn create_download(
     .bind(metadata.title)
     .bind(metadata.preview_url)
     .bind(post_install)
+    .bind(install_path)
     .fetch_one(db)
     .await?;
     Ok(download_from_row(row))

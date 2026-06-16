@@ -7,6 +7,7 @@ export type WorkshopJob = {
   workshopId: number;
   title?: string | null;
   previewUrl?: string | null;
+  installPath?: string | null;
   fileName: string | null;
   files?: string[];
   size: number | null;

@@ -1,7 +1,7 @@
 {
   "name": "dev_wasian_calaworkshop",
   "private": true,
-  "version": "0.2.7-alpha.2",
+  "version": "0.2.7-alpha.3",
   "type": "module",
   "main": "src/index.tsx",
   "types": "src/index.tsx",

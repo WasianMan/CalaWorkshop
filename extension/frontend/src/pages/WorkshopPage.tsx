@@ -71,6 +71,14 @@ const pollIntervalMs = (activeCount: number) =>
  */
 const RESUME_AUTOPOLL_LIMIT = 15;
 
+/** Max simultaneous install (Wings pull/decompress) operations. A big batch of
+ * already-`ready` jobs would otherwise fire dozens of volume ops at once. */
+const MAX_INSTALL_CONCURRENCY = 3;
+
+/** Above this many tracked jobs, suppress per-item install toasts (the lists
+ * already reflect state) so a large batch can't spam dozens of notifications. */
+const TOAST_BATCH_LIMIT = 10;
+
 /** A download is "active" until it reaches a terminal state. */
 const TERMINAL_STATES = new Set(['installed', 'failed']);
 const isActiveState = (state: string) => !TERMINAL_STATES.has(state);
@@ -159,6 +167,10 @@ export default function WorkshopPage() {
   const historyPageRef = useRef(1);
   // Job ids with a live poll loop, to avoid double-polling/double-installing.
   const polledIds = useRef<Set<string>>(new Set());
+  // Live count of in-flight install operations, for pacing.
+  const installSlots = useRef(0);
+  // Warn at most once when downloads are ready but no install path is known.
+  const warnedNoPathRef = useRef(false);
 
   const updateJob = (id: string, patch: Partial<JobRow>) =>
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
@@ -233,6 +245,7 @@ export default function WorkshopPage() {
   // path was known (e.g. resumed after a reload).
   useEffect(() => {
     installPathRef.current = installPath;
+    if (installPath.trim()) warnedNoPathRef.current = false;
   }, [installPath]);
 
   const preset = useMemo(
@@ -279,15 +292,36 @@ export default function WorkshopPage() {
           return;
         }
         if (job.state === 'ready') {
+          // Prefer the path persisted on the job (survives reloads); fall back to
+          // the current UI field for older jobs created before paths were stored.
+          const path = (job.installPath ?? installPathRef.current ?? '').trim();
+          if (!path) {
+            // Don't fail or spam — leave the job `ready` and stop polling. Warn once.
+            if (!warnedNoPathRef.current) {
+              warnedNoPathRef.current = true;
+              addToast(
+                'Downloads are ready but no install path is set — select the game / set a path, then Resume.',
+                'error',
+              );
+            }
+            return;
+          }
+          // Pace installs so a big resumed backlog doesn't fire dozens of Wings
+          // operations at once.
+          while (installSlots.current >= MAX_INSTALL_CONCURRENCY) await sleep(400);
+          installSlots.current += 1;
           updateJob(jobId, { state: 'installing' });
+          const quiet = polledIds.current.size > TOAST_BATCH_LIMIT;
           try {
-            const result = await installJob(server.uuid, jobId, installPathRef.current.trim());
+            const result = await installJob(server.uuid, jobId, path);
             updateJob(jobId, { state: 'installed', fileName: result.fileName });
-            addToast(`Installed ${result.files?.join(', ') || result.fileName}`, 'success');
+            if (!quiet) addToast(`Installed ${result.files?.join(', ') || result.fileName}`, 'success');
             loadInstalled();
           } catch (err) {
             updateJob(jobId, { state: 'failed', error: httpErrorToHuman(err) });
-            addToast(httpErrorToHuman(err), 'error');
+            if (!quiet) addToast(httpErrorToHuman(err), 'error');
+          } finally {
+            installSlots.current -= 1;
           }
           return;
         }
@@ -339,6 +373,7 @@ export default function WorkshopPage() {
   };
 
   const resumePendingPolls = () => {
+    warnedNoPathRef.current = false; // allow the no-path warning to show once more
     for (const job of jobs) {
       if (isActiveState(job.state)) startPoll(job.id);
     }
@@ -474,6 +509,7 @@ export default function WorkshopPage() {
       workshopId,
       account: config?.canLinkSteam ? account : null,
       archive,
+      installPath: path,
     });
     setJobs((prev) => [{ id: jobId, workshopId, state, title }, ...prev]);
     startPoll(jobId);
@@ -580,6 +616,11 @@ export default function WorkshopPage() {
     if (!preset || !collectionPreview) return;
     const collectionId = parseWorkshopId(collectionInput);
     if (!collectionId) return;
+    const path = installPath.trim();
+    if (!path) {
+      addToast('Install path is required', 'error');
+      return;
+    }
     if (accountRequired && !account) {
       addToast('Select a linked Steam account for this game', 'error');
       return;
@@ -590,6 +631,7 @@ export default function WorkshopPage() {
         appId: preset.appId,
         collectionId,
         account: config?.canLinkSteam ? account : null,
+        installPath: path,
       });
       const rows = result.jobs.map((job, index) => ({
         id: (job as any).jobId ?? (job as any).job_id,

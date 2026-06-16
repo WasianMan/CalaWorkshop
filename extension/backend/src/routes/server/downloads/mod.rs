@@ -107,6 +107,10 @@ pub(crate) mod post {
         /// Zip the whole item folder instead of serving a single file.
         #[serde(default)]
         archive: bool,
+        /// Where to install once downloaded. Persisted on the job so the install
+        /// step survives a page reload.
+        #[serde(default)]
+        install_path: Option<String>,
     }
 
     #[derive(ToSchema, Serialize)]
@@ -147,6 +151,7 @@ pub(crate) mod post {
             data.archive,
             // Single direct download: fetch metadata (one Steam Web API call is fine).
             None,
+            data.install_path.as_deref(),
         )
         .await?;
 
@@ -316,6 +321,8 @@ pub(crate) mod post {
         archive: bool,
         // Optional pre-known metadata (skips a per-item Steam Web API call).
         known_metadata: Option<crate::registry::WorkshopMetadata>,
+        // Intended install destination, persisted on the job row.
+        install_path: Option<&str>,
     ) -> Result<Response, shared::response::ApiResponse> {
         let resolved = resolve_dispatch(
             state,
@@ -335,6 +342,7 @@ pub(crate) mod post {
             workshop_id,
             resolved.metadata.clone(),
             resolved.post_install,
+            install_path,
         )
         .await?;
 

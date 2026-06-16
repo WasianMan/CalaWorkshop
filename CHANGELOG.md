@@ -3,6 +3,26 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
+## [0.2.7-alpha.3] - 2026-06-16
+
+Fixes installs failing after a large batch finished downloading.
+
+### Fixed
+- Downloaded items reaching `ready` could fail to install with "invalid path" —
+  the install destination was read from transient UI state, which is empty after a
+  page reload, so resuming a finished batch spammed the error and lost the jobs.
+  The install path is now **persisted on each download job** (`create_download`
+  stores it; `GET /downloads/{id}` returns it) and the install step uses that, so
+  installs survive reloads.
+
+### Changed
+- Installs are paced to at most 3 concurrent Wings operations, so a large batch of
+  already-`ready` jobs (e.g. resumed after a reload) no longer fires dozens of
+  volume operations at once.
+- Per-item install toasts are suppressed for large batches (the download/installed
+  lists show progress instead), and a missing install path now warns once rather
+  than once per ready job.
+
 ## [0.2.7-alpha.2] - 2026-06-16
 
 Hardening on top of alpha.1: closes the remaining ways a big (re)install could

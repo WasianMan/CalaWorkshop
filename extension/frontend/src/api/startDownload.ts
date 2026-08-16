@@ -5,6 +5,7 @@ export type StartDownloadInput = {
   workshopId: number;
   account?: string | null;
   archive?: boolean;
+  installPath?: string | null;
 };
 
 export type StartDownloadResult = {
@@ -19,6 +20,7 @@ export default async (serverUuid: string, input: StartDownloadInput): Promise<St
     workshop_id: input.workshopId,
     account: input.account ?? null,
     archive: input.archive ?? false,
+    install_path: input.installPath ?? null,
   });
-  return data;
+  return { jobId: data.job_id, state: data.state };
 };

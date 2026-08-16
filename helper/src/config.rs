@@ -14,6 +14,11 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// Path to the `steamcmd` executable (or `.sh` wrapper).
     pub steamcmd_bin: String,
+    /// Maximum number of `steamcmd` downloads allowed to run concurrently. Jobs
+    /// beyond this stay `queued` until a slot frees up. Paces big collections so
+    /// we don't spawn dozens of steamcmd processes at once and trip Steam's rate
+    /// limiter. Defaults to 3; override with `WORKSHOP_MAX_CONCURRENT`.
+    pub max_concurrent: usize,
 }
 
 impl Config {
@@ -38,11 +43,19 @@ impl Config {
 
         let steamcmd_bin = std::env::var("STEAMCMD_BIN").unwrap_or_else(|_| "steamcmd".to_string());
 
+        // At least 1; ignore unparsable/zero values and fall back to the default.
+        let max_concurrent = std::env::var("WORKSHOP_MAX_CONCURRENT")
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+            .filter(|n| *n >= 1)
+            .unwrap_or(3);
+
         Ok(Self {
             token,
             bind,
             data_dir,
             steamcmd_bin,
+            max_concurrent,
         })
     }
 

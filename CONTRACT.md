@@ -91,6 +91,12 @@ Response `202 Accepted`:
 }
 ```
 
+A job stays `queued` until a download slot is free: the helper runs at most
+`WORKSHOP_MAX_CONCURRENT` (default 3) SteamCMD downloads at once and queues the
+rest, so a large collection paces itself instead of launching every download
+immediately. Transient SteamCMD failures (rate limit / connection / timeout) are
+retried with backoff before the job transitions to `failed`.
+
 ### `GET /jobs/{id}`
 Poll a job.
 
@@ -167,6 +173,63 @@ prompt steamcmd can't satisfy non-interactively fails fast instead of hanging.
 
 ### `DELETE /accounts/{label}`
 Removes the cached session. `204`.
+
+---
+
+## Login sessions (async)
+
+`POST /accounts/login` runs steamcmd synchronously inside one request, which
+cannot represent "waiting for the user to tap Approve on their phone". Login
+*sessions* run the login in a background task and let the extension poll. The
+legacy endpoint remains for compatibility; the extension UI uses sessions.
+
+A session view looks like:
+
+```json
+{
+  "id": "9f1c...uuid",
+  "label": "f3a9...opaque",
+  "method": "password | qr",
+  "state": "running | awaiting_mobile_confirmation | awaiting_qr | needs_guard | verifying | ok | failed",
+  "username": "steamuser",          // known from the start (password) or after approval (qr)
+  "error": "human-readable",        // when state == failed
+  "error_kind": "invalid_credentials | rate_limited | connectivity | timeout | expired | qr_unsupported | superseded | internal",
+  "guard_hint": "email | device",   // when state == needs_guard
+  "challenge_url": "https://s.team/q/...",  // qr, while awaiting_qr
+  "qr_svg": "<svg .../>",           // qr, ready-to-display QR image
+  "verified": true                  // only when state == ok
+}
+```
+
+`needs_guard`, `ok`, and `failed` are terminal. Sessions are in-memory,
+garbage-collected (~10 min after finishing), and starting a new session for a
+label supersedes any session still running for it.
+
+### `POST /accounts/login-sessions`
+Body `{ "label", "username", "password", "guard_code": null }` → `202` with the
+session view. The steamcmd login streams in the background; if steamcmd asks for
+an in-app approval the state becomes `awaiting_mobile_confirmation` and the
+helper waits up to 5 minutes for the user to tap Approve. `needs_guard` means
+"start a new session with `guard_code` filled in" (the code is the optional 3rd
+`+login` arg, as with the legacy endpoint).
+
+### `POST /accounts/login-sessions/qr`
+Body `{ "label" }` → `202` with the session view, already carrying a scannable
+`qr_svg`/`challenge_url` (`state: "awaiting_qr"`). The helper drives a Steam
+`IAuthenticationService` QR auth session (platform type SteamClient) directly —
+no password ever touches the helper. The QR rotates ~every 30s; poll for the
+fresh image. After the user scans and approves, the issued refresh token is
+handed to steamcmd in place of a password and the usual passwordless
+verification runs before the account is marked linked. If the local steamcmd
+build refuses token sign-ins, the session fails with
+`error_kind: "qr_unsupported"` and the password flow is the fallback — the
+handoff is verified, never assumed.
+
+### `GET /accounts/login-sessions/{id}`
+Poll a session. `404` when unknown/expired.
+
+### `DELETE /accounts/login-sessions/{id}`
+Cancel/abandon a session (kills any in-flight steamcmd login). `204`.
 
 ---
 

@@ -6,32 +6,63 @@ import {
   Badge,
   Button,
   Card,
+  Center,
   Group,
+  Image,
+  Loader,
   PasswordInput,
+  SegmentedControl,
   Stack,
   Table,
   Text,
   TextInput,
   Title,
 } from '@mantine/core';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { httpErrorToHuman } from '@/api/axios.ts';
 import deleteAccount from '../api/steam/deleteAccount.ts';
 import listAccounts, { type SteamAccount } from '../api/steam/listAccounts.ts';
-import loginAccount from '../api/steam/loginAccount.ts';
+import {
+  beginPasswordSession,
+  beginQrSession,
+  cancelLoginSession,
+  getLoginSession,
+  type LoginSession,
+} from '../api/steam/loginSessions.ts';
 import AccountContentContainer from '@/elements/containers/AccountContentContainer.tsx';
 import { useToast } from '@/providers/ToastProvider.tsx';
+
+const TERMINAL_STATES = new Set(['needs_guard', 'ok', 'failed']);
+const POLL_INTERVAL_MS = 2500;
+
+function statusLine(session: LoginSession): string {
+  switch (session.state) {
+    case 'running':
+      return 'Contacting Steam…';
+    case 'awaiting_qr':
+      return 'Scan the QR code with the Steam Mobile app, then approve the sign-in.';
+    case 'awaiting_mobile_confirmation':
+      return 'Approve this sign-in in the Steam Mobile app on your phone. Waiting…';
+    case 'verifying':
+      return 'Login accepted — verifying the cached session…';
+    default:
+      return '';
+  }
+}
 
 export default function SteamLinkPage() {
   const { addToast } = useToast();
 
   const [accounts, setAccounts] = useState<SteamAccount[]>([]);
+  const [method, setMethod] = useState<'qr' | 'password'>('password');
   const [label, setLabel] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [guardCode, setGuardCode] = useState('');
-  const [needsGuard, setNeedsGuard] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [session, setSession] = useState<LoginSession | null>(null);
+  // Label the active session was started with (inputs stay editable safely).
+  const sessionLabelRef = useRef('');
 
   const refresh = () => {
     listAccounts()
@@ -44,39 +75,81 @@ export default function SteamLinkPage() {
     refresh();
   }, []);
 
-  const handleLogin = async () => {
+  const sessionActive = session !== null && !TERMINAL_STATES.has(session.state);
+  const needsGuard = session?.state === 'needs_guard';
+
+  // Poll the active session until it reaches a terminal state.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: poll keyed on session id/state
+  useEffect(() => {
+    if (!session || TERMINAL_STATES.has(session.state)) {
+      return;
+    }
+    const id = session.id;
+    const timer = setInterval(async () => {
+      try {
+        const next = await getLoginSession(id, sessionLabelRef.current);
+        if (next.state === 'ok') {
+          addToast(`Linked and verified ${sessionLabelRef.current}`, 'success');
+          setSession(null);
+          setPassword('');
+          setGuardCode('');
+          refresh();
+          return;
+        }
+        setSession(next);
+      } catch {
+        // Session evaporated (helper restart / GC) — reset quietly.
+        setSession(null);
+        addToast('The login session ended unexpectedly — try again', 'error');
+      }
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [session?.id, session?.state]);
+
+  const startQr = async () => {
+    if (!label.trim()) {
+      addToast('Enter a label first', 'error');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      sessionLabelRef.current = label.trim();
+      setSession(await beginQrSession(label.trim()));
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const startPassword = async () => {
     if (!label.trim() || !username.trim()) {
       addToast('Label and username are required', 'error');
       return;
     }
     setSubmitting(true);
     try {
-      const result = await loginAccount({
-        label: label.trim(),
-        username: username.trim(),
-        password,
-        guardCode: needsGuard && guardCode.trim() ? guardCode.trim() : null,
-      });
-      if (result.state === 'ok') {
-        addToast(result.verified ? `Linked and verified ${label}` : `Linked ${label}`, 'success');
-        setNeedsGuard(false);
-        setPassword('');
-        setGuardCode('');
-        refresh();
-      } else if (result.state === 'needs_guard') {
-        setNeedsGuard(true);
-      }
-    } catch (err: any) {
-      // The helper returns 409 when a Steam Guard code is required.
-      if (err?.response?.status === 409) {
-        setNeedsGuard(true);
-        addToast('Enter the Steam Guard code and submit again', 'error');
-      } else {
-        addToast(httpErrorToHuman(err), 'error');
-      }
+      sessionLabelRef.current = label.trim();
+      setSession(
+        await beginPasswordSession({
+          label: label.trim(),
+          username: username.trim(),
+          password,
+          guardCode: guardCode.trim() ? guardCode.trim() : null,
+        }),
+      );
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const cancelSession = async () => {
+    if (session) {
+      cancelLoginSession(session.id, sessionLabelRef.current).catch(() => undefined);
+    }
+    setSession(null);
   };
 
   const handleDelete = async (accountLabel: string) => {
@@ -89,60 +162,148 @@ export default function SteamLinkPage() {
     }
   };
 
+  const failed = session?.state === 'failed' ? session : null;
+
   return (
     <AccountContentContainer title='Steam Link'>
       <Stack gap='md'>
         <Alert color='blue' title='How Steam linking works'>
           Anonymous downloads work for some games, but many (including Left 4 Dead 2) require an
-          account that owns the game. Linking logs the helper into your Steam account once and
+          account that owns the game. Linking signs the helper into your Steam account once and
           caches the session — your password is never stored. Accounts you link here are tied to
-          your user and are not visible to other panel users. A fresh login may need Steam Guard:
-          check your Steam mobile app for an approval prompt, or enter the generated code from the
-          app's Steam Guard page when prompted. After login, the helper runs a passwordless
-          SteamCMD check to verify the cached session can be reused for downloads.
+          your user and are not visible to other panel users. Heads up on Steam Guard: even after
+          you approve the sign-in in the Steam Mobile app, Steam may still ask for a code — the
+          app will not prompt you for it, so open the app's Steam Guard tab (shield icon) to find
+          the rotating 5-character code. The QR method is experimental: it needs no password, but
+          most SteamCMD builds reject the handoff — if that happens you'll get a clear message and
+          can use the password method instead.
         </Alert>
 
         <Card withBorder radius='md' padding='lg'>
-          <Title order={4} mb='sm'>Link a Steam account</Title>
+          <Title order={4} mb='sm'>
+            Link a Steam account
+          </Title>
           <Stack gap='sm'>
-            <Group grow>
-              <TextInput
-                label='Label'
-                placeholder='e.g. main'
-                value={label}
-                onChange={(e) => setLabel(e.currentTarget.value)}
-              />
-              <TextInput
-                label='Steam username'
-                value={username}
-                onChange={(e) => setUsername(e.currentTarget.value)}
-              />
-            </Group>
-            <PasswordInput
-              label='Steam password'
-              value={password}
-              onChange={(e) => setPassword(e.currentTarget.value)}
+            <SegmentedControl
+              value={method}
+              onChange={(value) => {
+                setMethod(value as 'qr' | 'password');
+                if (session) cancelSession();
+              }}
+              disabled={sessionActive}
+              data={[
+                { label: 'Password', value: 'password' },
+                { label: 'QR code (experimental)', value: 'qr' },
+              ]}
             />
-            {needsGuard ? (
-              <TextInput
-                label='Steam Guard code'
-                description='Use the generated app/email code, or approve the mobile sign-in and submit again.'
-                value={guardCode}
-                onChange={(e) => setGuardCode(e.currentTarget.value)}
-              />
+
+            <TextInput
+              label='Label'
+              description='A name for this link, e.g. main'
+              placeholder='e.g. main'
+              value={label}
+              disabled={sessionActive}
+              onChange={(e) => setLabel(e.currentTarget.value)}
+            />
+
+            {method === 'password' ? (
+              <>
+                <Group grow>
+                  <TextInput
+                    label='Steam username'
+                    value={username}
+                    disabled={sessionActive}
+                    onChange={(e) => setUsername(e.currentTarget.value)}
+                  />
+                  <PasswordInput
+                    label='Steam password'
+                    value={password}
+                    disabled={sessionActive}
+                    onChange={(e) => setPassword(e.currentTarget.value)}
+                  />
+                </Group>
+                {needsGuard ? (
+                  <TextInput
+                    label='Steam Guard code'
+                    description={
+                      session?.guardHint === 'email'
+                        ? 'Steam emailed a code to the address on the account — enter it here.'
+                        : 'Steam wants the rotating 5-character code. The Steam Mobile app will NOT prompt you for it — open the app yourself, go to the Steam Guard tab (shield icon), and copy the code shown there, then submit again.'
+                    }
+                    value={guardCode}
+                    onChange={(e) => setGuardCode(e.currentTarget.value)}
+                  />
+                ) : null}
+              </>
             ) : null}
+
+            {sessionActive && session ? (
+              <Alert color={session.state === 'awaiting_mobile_confirmation' ? 'yellow' : 'blue'}>
+                <Stack gap='xs'>
+                  <Group gap='xs'>
+                    <Loader size='xs' />
+                    <Text size='sm'>{statusLine(session)}</Text>
+                  </Group>
+                  {session.state === 'awaiting_qr' && session.qrSvg ? (
+                    <Center>
+                      <Image
+                        src={`data:image/svg+xml;base64,${btoa(session.qrSvg)}`}
+                        alt='Steam sign-in QR code'
+                        w={220}
+                        h={220}
+                        fit='contain'
+                      />
+                    </Center>
+                  ) : null}
+                  {session.state === 'awaiting_mobile_confirmation' ? (
+                    <Text size='xs' c='dimmed'>
+                      Keep this page open — the approval is usually instant once you tap. Steam
+                      may still ask for a code after you approve; the app won't prompt you for it,
+                      so grab the rotating code from the app's Steam Guard tab (shield icon) when
+                      the code field appears here.
+                    </Text>
+                  ) : null}
+                </Stack>
+              </Alert>
+            ) : null}
+
+            {failed ? (
+              <Alert color='red' title='Login failed'>
+                <Text size='sm'>{failed.error ?? 'Unknown error'}</Text>
+                {failed.errorKind === 'qr_unsupported' ? (
+                  <Text size='sm' mt='xs'>
+                    Switch to the <b>Password</b> method above to finish linking this account.
+                  </Text>
+                ) : null}
+              </Alert>
+            ) : null}
+
             <Group>
-              <Button loading={submitting} onClick={handleLogin}>
-                {needsGuard ? 'Submit code' : 'Link account'}
-              </Button>
+              {sessionActive ? (
+                <Button variant='default' onClick={cancelSession}>
+                  Cancel
+                </Button>
+              ) : method === 'qr' ? (
+                <Button loading={submitting} onClick={startQr}>
+                  Show QR code
+                </Button>
+              ) : (
+                <Button loading={submitting} onClick={startPassword}>
+                  {needsGuard ? 'Submit code' : 'Link account'}
+                </Button>
+              )}
             </Group>
           </Stack>
         </Card>
 
         <Card withBorder radius='md' padding='lg'>
-          <Title order={4} mb='sm'>Linked accounts</Title>
+          <Title order={4} mb='sm'>
+            Linked accounts
+          </Title>
           {accounts.length === 0 ? (
-            <Text c='dimmed' size='sm'>No linked accounts yet.</Text>
+            <Text c='dimmed' size='sm'>
+              No linked accounts yet.
+            </Text>
           ) : (
             <Table>
               <Table.Thead>
@@ -162,7 +323,11 @@ export default function SteamLinkPage() {
                       </Badge>
                     </Table.Td>
                     <Table.Td align='right'>
-                      <ActionIcon color='red' variant='subtle' onClick={() => handleDelete(acc.label)}>
+                      <ActionIcon
+                        color='red'
+                        variant='subtle'
+                        onClick={() => handleDelete(acc.label)}
+                      >
                         <FontAwesomeIcon icon={faTrash} />
                       </ActionIcon>
                     </Table.Td>

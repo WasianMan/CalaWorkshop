@@ -45,6 +45,7 @@ Errors are JSON `{ "error": "message" }` with `401`/`403`/`404`/`409`/`4xx`/`5xx
 | `WORKSHOP_HELPER_BIND`  | `0.0.0.0:8090` | Listen address. |
 | `WORKSHOP_DATA_DIR`     | `/data`        | Holds `jobs/<id>/` artifacts and `steam/<label-or-anonymous>/` workdirs. |
 | `STEAMCMD_BIN`          | `steamcmd`     | Path to the steamcmd executable / `.sh`. |
+| `WORKSHOP_MAX_CONCURRENT` | `3`          | Max steamcmd downloads run at once; extra jobs stay `queued`. Paces large collections so Steam doesn't rate-limit. Min 1. |
 
 `RUST_LOG` controls tracing (defaults to `info,calaworkshop_helper=debug`).
 
@@ -104,13 +105,22 @@ network as `http://calagopus-workshop-helper:8090`.
 - We persist **only the username** per label in `<data_dir>/steam/<label>/account.json`.
   The **password is never written to disk**. Account-based downloads run steamcmd
   in that workdir with `+login <username>` and rely on the cached session.
-- **Steam Guard limitations:** this is a non-interactive process. SteamCMD may
-  accept a generated Steam Guard code, or it may wait briefly for a mobile app
-  approval. If the helper returns `409 {"state":"needs_guard"}`, re-`POST
-  /accounts/login` with `guard_code` filled in (passed as the optional 3rd
-  `+login` argument). Detection is heuristic (steamcmd wording varies by
-  version). Once a session is cached and verified, it is reused until Steam
-  expires it, at which point login must run again.
+- **Steam Guard:** prefer the async login sessions (`POST
+  /accounts/login-sessions`, see `CONTRACT.md`): a mobile-app approval is
+  surfaced as `awaiting_mobile_confirmation` and steamcmd is left to wait up to
+  5 minutes for the tap, and a `needs_guard` result carries a hint for where
+  the code is (email vs the app's rotating Steam Guard code). The legacy
+  synchronous `POST /accounts/login` remains: on `409 {"state":"needs_guard"}`,
+  re-POST with `guard_code` filled in (passed as the optional 3rd `+login`
+  argument). Detection is heuristic (steamcmd wording varies by version). Once
+  a session is cached and verified, it is reused until Steam expires it.
+- **QR login:** `POST /accounts/login-sessions/qr` drives a Steam
+  `IAuthenticationService` QR auth session over HTTPS (`api.steampowered.com`)
+  and, after in-app approval, hands the issued refresh token to steamcmd in
+  place of a password. The handoff is verified with the passwordless check
+  before the account is marked linked; a steamcmd build that refuses token
+  sign-ins yields `error_kind: "qr_unsupported"` and password login remains
+  the fallback. The QR flow requires outbound HTTPS from the helper container.
 - `GET /accounts` reports `valid: true` when a username is stored (i.e. a login
   was performed). It does **not** re-verify session freshness — doing so would
   require invoking steamcmd on every list call.

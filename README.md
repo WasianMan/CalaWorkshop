@@ -35,7 +35,10 @@ games can be added through JSON presets.
   extract GMAD archives, generate files, and scan installed content. Unconfigured
   games mirror every downloaded file.
 - Best-effort game auto-detection from the server's egg, preselecting the preset
-- Per-user Steam account linking with Steam Guard/mobile-auth support
+- Per-user Steam account linking: password login with proper Steam Guard
+  mobile-approval waiting and guided code entry, plus an experimental QR-code
+  method (no password; most SteamCMD builds currently reject the token handoff,
+  in which case it fails cleanly and password login is the fallback)
 - Helper and SteamCMD diagnostics in the admin config page
 
 Richer update/reinstall workflows are still on the roadmap.
@@ -113,6 +116,15 @@ Detailed AIO/Coolify steps: [docs/DEPLOY.md](./docs/DEPLOY.md)
 - Linked accounts are per panel user. The helper stores only SteamCMD session files
   and the username metadata needed to reuse the session; it does not store the
   password.
+- Steam Guard tip: even after you approve a sign-in in the Steam Mobile app,
+  Steam may still ask for a code — the app does not prompt for it. Open the
+  app's **Steam Guard tab** (shield icon) to find the rotating 5-character code.
+- The **QR code** method is experimental: the helper starts a Steam auth
+  session, you scan and approve in the app, and no password ever reaches the
+  panel or helper. However, the final handoff of the Steam-issued token to
+  SteamCMD is rejected by most SteamCMD builds — the link then fails with a
+  clear `qr_unsupported` message (nothing is harmed) and password login is the
+  fallback.
 - After linking, the helper runs a passwordless cached-session check before marking
   the account verified.
 
@@ -155,7 +167,7 @@ install. See [CONTRIBUTING.md](./CONTRIBUTING.md) for more detail.
 
 ## Version
 
-Current release: **v0.2.6**
+Current release: **v0.2.8-alpha.2** (prerelease; requires Calagopus panel ≥ 1.1.0)
 Changelog: [CHANGELOG.md](./CHANGELOG.md)
 
 ## Screenshots

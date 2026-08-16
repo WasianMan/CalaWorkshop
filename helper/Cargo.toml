@@ -1,6 +1,6 @@
 [package]
 name = "calaworkshop-helper"
-version = "0.2.6"
+version = "0.2.8-alpha.2"
 edition = "2021"
 description = "SteamCMD helper microservice for the Calagopus calaworkshop extension"
 license = "MIT"
@@ -22,6 +22,11 @@ rand = "0.8"
 zip = "2"
 anyhow = "1"
 globset = "0.4"
+# Steam QR login: HTTPS calls to api.steampowered.com (rustls + bundled roots so
+# the static musl binary needs no system CA store) and QR rendering as SVG.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots"] }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+base64 = "0.22"
 
 [profile.release]
 strip = true

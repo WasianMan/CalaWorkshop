@@ -10,7 +10,7 @@ use utoipa_axum::router::OpenApiRouter;
 use super::State;
 
 const COLLECTION_TTL_SECONDS: i64 = 600;
-const MAX_COLLECTION_ITEMS: usize = 100;
+const MAX_COLLECTION_ITEMS: usize = 500;
 
 #[derive(Deserialize)]
 struct CollectionPayload {
@@ -18,6 +18,9 @@ struct CollectionPayload {
     collection_id: u64,
     #[serde(default)]
     account: Option<String>,
+    /// Install destination, persisted on each job so installs survive a reload.
+    #[serde(default)]
+    install_path: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -62,8 +65,34 @@ async fn install(
         return Err(ApiResponse::error("collection has no installable children"));
     }
 
+    // Re-adding a collection should only fetch what's missing. Items already in
+    // the installed registry for this server are skipped, so a half-finished
+    // 100+ item install can be resumed by simply installing the collection again
+    // instead of re-downloading everything.
+    let already_installed: std::collections::HashSet<i64> =
+        crate::registry::list_installed(state.database.read(), server_uuid)
+            .await?
+            .into_iter()
+            .filter_map(|item| item.workshop_id)
+            .collect();
+
     let mut jobs = Vec::new();
+    let mut skipped = payload.skipped;
     for item in payload.children.iter().take(MAX_COLLECTION_ITEMS) {
+        if already_installed.contains(&(item.published_file_id as i64)) {
+            skipped.push(crate::steam::CollectionSkippedItem {
+                published_file_id: item.published_file_id,
+                reason: "already installed".to_string(),
+            });
+            continue;
+        }
+        // Reuse the title/preview already returned by the collection preview so we
+        // don't make a Steam Web API metadata call per child — that storm is what
+        // rate-limited big collections.
+        let known = crate::registry::WorkshopMetadata {
+            title: Some(item.title.clone()),
+            preview_url: item.preview_url.clone(),
+        };
         let job = super::downloads::post::start_download_for_item(
             &state,
             &permissions,
@@ -73,6 +102,8 @@ async fn install(
             item.published_file_id,
             data.account.as_deref(),
             false,
+            Some(known),
+            data.install_path.as_deref(),
         )
         .await?;
         jobs.push(job);
@@ -81,7 +112,7 @@ async fn install(
     ApiResponse::new_serialized(InstallResponse {
         collection_id: data.collection_id,
         jobs,
-        skipped: payload.skipped,
+        skipped,
     })
     .ok()
 }

@@ -21,6 +21,7 @@ mod get {
         workshop_id: u64,
         title: Option<String>,
         preview_url: Option<String>,
+        install_path: Option<String>,
         file_name: Option<String>,
         #[schema(value_type = Vec<String>)]
         files: Vec<String>,
@@ -85,6 +86,7 @@ mod get {
             workshop_id: job.workshop_id as u64,
             title: job.title,
             preview_url: job.preview_url,
+            install_path: job.install_path,
             file_name: job.file_name,
             files: job.files,
             size: None,

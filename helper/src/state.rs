@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::Serialize;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 use uuid::Uuid;
 
 use crate::config::Config;
@@ -53,13 +53,29 @@ pub struct AppState {
     // Helper jobs are intentionally in-memory; the extension persists the
     // user-facing job history and reconciles active helper jobs while available.
     pub jobs: Arc<RwLock<HashMap<Uuid, Job>>>,
+    /// Bounds how many steamcmd downloads run at once. A job worker waits on a
+    /// permit before transitioning out of `queued`, which paces large batches
+    /// (e.g. a 100+ item collection) so we don't trip Steam's rate limiter.
+    pub download_slots: Arc<Semaphore>,
+    /// In-flight and recently-finished async login sessions.
+    pub login_sessions: crate::login::LoginSessions,
+    /// HTTPS client for Steam's public auth API (QR login).
+    pub http: reqwest::Client,
 }
 
 impl AppState {
     pub fn new(config: Config) -> Self {
+        let download_slots = Arc::new(Semaphore::new(config.max_concurrent));
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("building HTTP client");
         Self {
             config: Arc::new(config),
             jobs: Arc::new(RwLock::new(HashMap::new())),
+            download_slots,
+            login_sessions: crate::login::LoginSessions::default(),
+            http,
         }
     }
 

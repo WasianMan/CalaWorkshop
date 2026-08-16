@@ -11,5 +11,9 @@ export default async (serverUuid: string, jobId: string, installPath: string): P
     `/api/client/servers/${serverUuid}/calaworkshop/downloads/${jobId}/install`,
     { install_path: installPath },
   );
-  return data;
+  return {
+    installed: data.installed ?? false,
+    fileName: data.file_name ?? '',
+    files: data.files ?? [],
+  };
 };

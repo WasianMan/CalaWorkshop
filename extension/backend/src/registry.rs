@@ -93,12 +93,16 @@ pub async fn create_download(
     workshop_id: u64,
     metadata: WorkshopMetadata,
     post_install: &str,
+    // Intended install destination, persisted now so the install step (which can
+    // run much later — e.g. after a page reload) doesn't depend on transient UI
+    // state. `None` falls back to the path supplied at install time.
+    install_path: Option<&str>,
 ) -> Result<DownloadJob, sqlx::Error> {
     let row = sqlx::query(
         r#"
         INSERT INTO dev_wasian_calaworkshop_download_jobs
-            (server_uuid, app_id, workshop_id, state, title, preview_url, post_install)
-        VALUES ($1, $2, $3, 'queued', $4, $5, $6)
+            (server_uuid, app_id, workshop_id, state, title, preview_url, post_install, install_path)
+        VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7)
         RETURNING *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
         "#,
     )
@@ -108,12 +112,17 @@ pub async fn create_download(
     .bind(metadata.title)
     .bind(metadata.preview_url)
     .bind(post_install)
+    .bind(install_path)
     .fetch_one(db)
     .await?;
     Ok(download_from_row(row))
 }
 
-pub async fn recent_downloads(
+/// In-flight jobs only: queued / downloading / ready (downloaded, awaiting
+/// install). Always returned in full (capped high) so a big batch never hides
+/// active work behind a page boundary. `ready` is treated as active because the
+/// frontend auto-installs it.
+pub async fn active_downloads(
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     server_uuid: uuid::Uuid,
 ) -> Result<Vec<DownloadJob>, sqlx::Error> {
@@ -121,11 +130,91 @@ pub async fn recent_downloads(
         r#"
         SELECT *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
         FROM dev_wasian_calaworkshop_download_jobs
-        WHERE server_uuid = $1
-        ORDER BY
-            CASE WHEN state IN ('queued', 'downloading', 'ready') THEN 0 ELSE 1 END,
-            updated_at DESC
-        LIMIT 50
+        WHERE server_uuid = $1 AND state IN ('queued', 'downloading', 'ready')
+        ORDER BY created_at ASC
+        LIMIT 1000
+        "#,
+    )
+    .bind(server_uuid)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(download_from_row).collect())
+}
+
+/// Terminal jobs (installed / failed), newest first, one page at a time.
+pub async fn history_downloads(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    server_uuid: uuid::Uuid,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<DownloadJob>, sqlx::Error> {
+    let rows = sqlx::query(
+        r#"
+        SELECT *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
+        FROM dev_wasian_calaworkshop_download_jobs
+        WHERE server_uuid = $1 AND state IN ('installed', 'failed')
+        ORDER BY updated_at DESC
+        LIMIT $2 OFFSET $3
+        "#,
+    )
+    .bind(server_uuid)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(download_from_row).collect())
+}
+
+/// Total count of terminal jobs, for paging the history list.
+pub async fn count_history_downloads(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    server_uuid: uuid::Uuid,
+) -> Result<i64, sqlx::Error> {
+    let row = sqlx::query(
+        r#"
+        SELECT COUNT(*) AS n
+        FROM dev_wasian_calaworkshop_download_jobs
+        WHERE server_uuid = $1 AND state IN ('installed', 'failed')
+        "#,
+    )
+    .bind(server_uuid)
+    .fetch_one(db)
+    .await?;
+    Ok(row.get("n"))
+}
+
+/// Mark every in-flight (queued/downloading) job for a server as failed. Used by
+/// "cancel all active" to recover from a stuck backlog without touching the
+/// helper or Steam. Returns how many rows were cancelled.
+pub async fn cancel_active_downloads(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    server_uuid: uuid::Uuid,
+) -> Result<u64, sqlx::Error> {
+    let res = sqlx::query(
+        r#"
+        UPDATE dev_wasian_calaworkshop_download_jobs
+        SET state = 'failed', error = 'cancelled', updated_at = now()
+        WHERE server_uuid = $1 AND state IN ('queued', 'downloading')
+        "#,
+    )
+    .bind(server_uuid)
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected())
+}
+
+/// All currently-failed jobs for a server, used by "retry all failed".
+pub async fn list_failed_downloads(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    server_uuid: uuid::Uuid,
+) -> Result<Vec<DownloadJob>, sqlx::Error> {
+    let rows = sqlx::query(
+        r#"
+        SELECT *, files::text AS files_json, created_at::text AS created_at_str, updated_at::text AS updated_at_str
+        FROM dev_wasian_calaworkshop_download_jobs
+        WHERE server_uuid = $1 AND state = 'failed'
+        ORDER BY updated_at DESC
+        LIMIT 1000
         "#,
     )
     .bind(server_uuid)
@@ -151,6 +240,30 @@ pub async fn get_download(
     .fetch_optional(db)
     .await?;
     Ok(row.map(download_from_row))
+}
+
+/// Delete terminal (installed/failed) history rows for a server in bulk —
+/// the "clear history" action. `state_filter` limits the sweep to one terminal
+/// state; `None` clears both. Active jobs are never touched (use
+/// `cancel_active_downloads` for those). Returns how many rows were removed.
+pub async fn clear_history_downloads(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    server_uuid: uuid::Uuid,
+    state_filter: Option<&str>,
+) -> Result<u64, sqlx::Error> {
+    let res = sqlx::query(
+        r#"
+        DELETE FROM dev_wasian_calaworkshop_download_jobs
+        WHERE server_uuid = $1
+          AND state IN ('installed', 'failed')
+          AND ($2::varchar IS NULL OR state = $2)
+        "#,
+    )
+    .bind(server_uuid)
+    .bind(state_filter)
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected())
 }
 
 pub async fn delete_download(
@@ -379,6 +492,43 @@ pub async fn put_cache_json(
     .execute(db)
     .await?;
     Ok(())
+}
+
+/// Namespace + per-server key for archive manifests stored in the cache table.
+pub const ARCHIVE_MANIFEST_NS: &str = "archive_manifest";
+
+pub fn archive_manifest_key(server_uuid: uuid::Uuid, file: &str) -> String {
+    format!("{server_uuid}:{file}")
+}
+
+/// List a server's stored archive manifests (newest first), as `(file, value)`
+/// pairs. The cache key is `{server_uuid}:{file}`; only this server's rows are
+/// returned.
+pub async fn list_archive_manifests(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    server_uuid: uuid::Uuid,
+) -> Result<Vec<(String, serde_json::Value)>, sqlx::Error> {
+    let prefix = format!("{server_uuid}:");
+    let rows = sqlx::query(
+        r#"
+        SELECT cache_key, value
+        FROM dev_wasian_calaworkshop_steam_cache
+        WHERE namespace = $1 AND cache_key LIKE $2 || '%' AND expires_at > now()
+        ORDER BY updated_at DESC
+        "#,
+    )
+    .bind(ARCHIVE_MANIFEST_NS)
+    .bind(&prefix)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let key: String = row.get("cache_key");
+            let file = key.strip_prefix(&prefix).unwrap_or(&key).to_string();
+            (file, row.get("value"))
+        })
+        .collect())
 }
 
 fn ext_is(file: &str, ext: &str) -> bool {

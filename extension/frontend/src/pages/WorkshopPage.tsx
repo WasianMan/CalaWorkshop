@@ -1,4 +1,4 @@
-import { faDownload, faPlus, faRotate, faSearch, faTrash } from '@fortawesome/free-solid-svg-icons';
+import { faBoxArchive, faBroom, faDownload, faPlus, faRotate, faRotateRight, faSearch, faTrash } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   ActionIcon,
@@ -9,6 +9,7 @@ import {
   Group,
   Image,
   Loader,
+  Menu,
   Select,
   SegmentedControl,
   SimpleGrid,
@@ -19,11 +20,18 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { httpErrorToHuman } from '@/api/axios.ts';
 import { installCollection, previewCollection, type CollectionPreview } from '../api/collections.ts';
+import cancelDownloads from '../api/cancelDownloads.ts';
+import clearDownloads from '../api/clearDownloads.ts';
 import deleteDownload from '../api/deleteDownload.ts';
 import deleteInstalled from '../api/deleteInstalled.ts';
+import archiveInstalled from '../api/archiveInstalled.ts';
+import listArchives, { type WorkshopArchive } from '../api/listArchives.ts';
+import removeAllInstalled from '../api/removeAllInstalled.ts';
+import restoreArchive from '../api/restoreArchive.ts';
+import retryFailedDownloads from '../api/retryFailedDownloads.ts';
 import getConfig, { type GamePreset, type WorkshopConfig } from '../api/getConfig.ts';
 import getJob from '../api/getJob.ts';
 import importInstalled from '../api/importInstalled.ts';
@@ -53,6 +61,29 @@ type JobRow = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const PAGE_SIZE_OPTIONS = [5, 10, 15, 25];
+
+/** Slow per-job polling down as the active batch grows, to spare the backend. */
+const pollIntervalMs = (activeCount: number) =>
+  activeCount <= 10 ? 2000 : activeCount <= 40 ? 4000 : activeCount <= 120 ? 6000 : 10000;
+
+/**
+ * Above this many in-flight jobs, don't auto-resume polling on page load — a
+ * large stale backlog (e.g. from a crashed run) would otherwise hammer the
+ * backend the instant the page opens. The user resumes or cancels explicitly.
+ */
+const RESUME_AUTOPOLL_LIMIT = 15;
+
+/** Max simultaneous install (Wings pull/decompress) operations. A big batch of
+ * already-`ready` jobs would otherwise fire dozens of volume ops at once. */
+const MAX_INSTALL_CONCURRENCY = 3;
+
+/** Above this many tracked jobs, suppress per-item install toasts (the lists
+ * already reflect state) so a large batch can't spam dozens of notifications. */
+const TOAST_BATCH_LIMIT = 10;
+
+/** A download is "active" until it reaches a terminal state. */
+const TERMINAL_STATES = new Set(['installed', 'failed']);
+const isActiveState = (state: string) => !TERMINAL_STATES.has(state);
 
 function parseWorkshopId(input: string): number | null {
   const trimmed = input.trim();
@@ -118,9 +149,59 @@ export default function WorkshopPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [collectionPreview, setCollectionPreview] = useState<CollectionPreview | null>(null);
   const [collectionLoading, setCollectionLoading] = useState(false);
+  const [history, setHistory] = useState<JobRow[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPerPage, setHistoryPerPage] = useState(25);
+  const [retrying, setRetrying] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [removingAll, setRemovingAll] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [pendingResumeCount, setPendingResumeCount] = useState(0);
+  const [archives, setArchives] = useState<WorkshopArchive[]>([]);
+  const [selectedArchive, setSelectedArchive] = useState<string | null>(null);
+
+  // Latest install path, read at install time so jobs resumed after a reload
+  // (whose path wasn't known when polling started) still install correctly.
+  const installPathRef = useRef('');
+  // History page we last loaded, so background refreshes stay on the same page.
+  const historyPageRef = useRef(1);
+  // Job ids with a live poll loop, to avoid double-polling/double-installing.
+  const polledIds = useRef<Set<string>>(new Set());
+  // Live count of in-flight install operations, for pacing.
+  const installSlots = useRef(0);
+  // Warn at most once when downloads are ready but no install path is known.
+  const warnedNoPathRef = useRef(false);
 
   const updateJob = (id: string, patch: Partial<JobRow>) =>
     setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, ...patch } : j)));
+
+  const toJobRow = (job: {
+    id: string;
+    workshopId: number;
+    title?: string | null;
+    state: string;
+    fileName?: string | null;
+    error?: string | null;
+  }): JobRow => ({
+    id: job.id,
+    workshopId: job.workshopId,
+    title: job.title,
+    state: job.state,
+    fileName: job.fileName,
+    error: job.error,
+  });
+
+  const loadArchives = () => {
+    listArchives(server.uuid)
+      .then((list) => {
+        setArchives(list);
+        setSelectedArchive((prev) => prev ?? list[0]?.file ?? null);
+      })
+      .catch(() => setArchives([]));
+  };
 
   const loadInstalled = () => {
     setInstalledLoading(true);
@@ -128,6 +209,7 @@ export default function WorkshopPage() {
       .then(setInstalled)
       .catch(() => setInstalled([]))
       .finally(() => setInstalledLoading(false));
+    loadArchives();
   };
 
   useEffect(() => {
@@ -156,23 +238,18 @@ export default function WorkshopPage() {
       })
       .catch((err) => setLoadError(httpErrorToHuman(err)));
 
-    listDownloads(server.uuid)
-      .then((rows) =>
-        setJobs(
-          rows.map((job) => ({
-            id: job.id,
-            workshopId: job.workshopId,
-            state: job.state,
-            fileName: job.fileName,
-            error: job.error,
-            title: job.title,
-          })),
-        ),
-      )
-      .catch(() => setJobs([]));
+    // Downloads (active + history) are loaded by a dedicated effect below, which
+    // also resumes polling for jobs still in flight after a page reload.
     loadInstalled();
     // biome-ignore lint/correctness/useExhaustiveDependencies: load once per server
   }, [server.uuid]);
+
+  // Keep the install-path ref current for jobs whose poll started before the
+  // path was known (e.g. resumed after a reload).
+  useEffect(() => {
+    installPathRef.current = installPath;
+    if (installPath.trim()) warnedNoPathRef.current = false;
+  }, [installPath]);
 
   const preset = useMemo(
     () => (presetIndex == null ? null : config?.presets[presetIndex] ?? null),
@@ -200,35 +277,245 @@ export default function WorkshopPage() {
     [installed],
   );
 
-  const pollJob = async (jobId: string, path: string) => {
-    for (;;) {
-      await sleep(2000);
-      let job;
-      try {
-        job = await getJob(server.uuid, jobId);
-      } catch (err) {
-        updateJob(jobId, { state: 'failed', error: httpErrorToHuman(err) });
-        return;
-      }
-      updateJob(jobId, { state: job.state, fileName: job.fileName, error: job.error });
-
-      if (job.state === 'failed') {
-        addToast(job.error ?? 'Download failed', 'error');
-        return;
-      }
-      if (job.state === 'ready') {
-        updateJob(jobId, { state: 'installing' });
+  const pollJob = async (jobId: string) => {
+    try {
+      for (;;) {
+        await sleep(pollIntervalMs(polledIds.current.size));
+        let job;
         try {
-          const result = await installJob(server.uuid, jobId, path);
-          updateJob(jobId, { state: 'installed', fileName: result.fileName });
-          addToast(`Installed ${result.files?.join(', ') || result.fileName}`, 'success');
-          loadInstalled();
+          job = await getJob(server.uuid, jobId);
         } catch (err) {
           updateJob(jobId, { state: 'failed', error: httpErrorToHuman(err) });
-          addToast(httpErrorToHuman(err), 'error');
+          return;
         }
-        return;
+        updateJob(jobId, { state: job.state, fileName: job.fileName, error: job.error });
+
+        if (job.state === 'failed') {
+          addToast(job.error ?? 'Download failed', 'error');
+          return;
+        }
+        if (job.state === 'ready') {
+          // Prefer the path persisted on the job (survives reloads); fall back to
+          // the current UI field for older jobs created before paths were stored.
+          const path = (job.installPath ?? installPathRef.current ?? '').trim();
+          if (!path) {
+            // Don't fail or spam — leave the job `ready` and stop polling. Warn once.
+            if (!warnedNoPathRef.current) {
+              warnedNoPathRef.current = true;
+              addToast(
+                'Downloads are ready but no install path is set — select the game / set a path, then Resume.',
+                'error',
+              );
+            }
+            return;
+          }
+          // Pace installs so a big resumed backlog doesn't fire dozens of Wings
+          // operations at once.
+          while (installSlots.current >= MAX_INSTALL_CONCURRENCY) await sleep(400);
+          installSlots.current += 1;
+          updateJob(jobId, { state: 'installing' });
+          const quiet = polledIds.current.size > TOAST_BATCH_LIMIT;
+          try {
+            const result = await installJob(server.uuid, jobId, path);
+            updateJob(jobId, { state: 'installed', fileName: result.fileName });
+            if (!quiet) addToast(`Installed ${result.files?.join(', ') || result.fileName}`, 'success');
+            loadInstalled();
+          } catch (err) {
+            updateJob(jobId, { state: 'failed', error: httpErrorToHuman(err) });
+            if (!quiet) addToast(httpErrorToHuman(err), 'error');
+          } finally {
+            installSlots.current -= 1;
+          }
+          return;
+        }
       }
+    } finally {
+      // Release the poll slot and resync lists so the finished job moves from
+      // the active card into the (terminal) history page.
+      polledIds.current.delete(jobId);
+      void loadDownloads(historyPageRef.current);
+    }
+  };
+
+  /** Start a poll loop for a job unless one is already running for it. */
+  const startPoll = (jobId: string) => {
+    if (polledIds.current.has(jobId)) return;
+    polledIds.current.add(jobId);
+    void pollJob(jobId);
+  };
+
+  /**
+   * Load active jobs + one page of history from the server, seed the lists, and
+   * resume polling any active job we aren't already tracking (e.g. after reload).
+   */
+  const loadDownloads = async (page = historyPageRef.current, resume = false) => {
+    let data;
+    try {
+      data = await listDownloads(server.uuid, page);
+    } catch {
+      return;
+    }
+    setJobs(data.active.map(toJobRow));
+    setHistory(data.history.map(toJobRow));
+    setHistoryTotal(data.historyTotal);
+    setHistoryPage(data.page);
+    setHistoryPerPage(data.perPage);
+    historyPageRef.current = data.page;
+    // Only the resume path (page load / retry) may start NEW poll loops. Background
+    // refreshes (a job finishing, paging history) must not, or they'd re-spawn
+    // polls during a legit batch. A large backlog is gated behind a manual resume.
+    if (resume) {
+      const active = data.active.filter((job) => isActiveState(job.state));
+      if (active.length > RESUME_AUTOPOLL_LIMIT) {
+        setPendingResumeCount(active.length);
+      } else {
+        setPendingResumeCount(0);
+        for (const job of active) startPoll(job.id);
+      }
+    }
+  };
+
+  const resumePendingPolls = () => {
+    warnedNoPathRef.current = false; // allow the no-path warning to show once more
+    for (const job of jobs) {
+      if (isActiveState(job.state)) startPoll(job.id);
+    }
+    setPendingResumeCount(0);
+  };
+
+  const handleCancelAll = async () => {
+    if (
+      !window.confirm(
+        'Cancel all active and queued downloads? They will be marked failed. Files already installed are not touched.',
+      )
+    ) {
+      return;
+    }
+    setCancelling(true);
+    try {
+      const n = await cancelDownloads(server.uuid);
+      addToast(`Cancelled ${n} active download${n === 1 ? '' : 's'}`, 'success');
+      setPendingResumeCount(0);
+      await loadDownloads(1, false);
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  // Initial load (and resume of in-flight jobs) once per server.
+  useEffect(() => {
+    void loadDownloads(1, true);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: load once per server
+  }, [server.uuid]);
+
+  const handleRetryFailed = async () => {
+    setRetrying(true);
+    try {
+      const res = await retryFailedDownloads(server.uuid, config?.canLinkSteam ? account : null);
+      if (res.retried === 0 && res.stillFailed === 0) {
+        addToast('No failed downloads to retry', 'info');
+      } else {
+        addToast(
+          `Retrying ${res.retried} item${res.retried === 1 ? '' : 's'}` +
+            (res.stillFailed ? `, ${res.stillFailed} could not be re-queued` : ''),
+          res.retried > 0 ? 'success' : 'warning',
+        );
+      }
+      await loadDownloads(1, true);
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  const handleClearHistory = async (stateFilter?: 'installed' | 'failed') => {
+    const what =
+      stateFilter === 'failed'
+        ? 'all failed entries'
+        : stateFilter === 'installed'
+          ? 'all completed entries'
+          : 'the entire download history';
+    if (
+      !window.confirm(
+        `Clear ${what}? This only forgets history — installed files are not touched.`,
+      )
+    ) {
+      return;
+    }
+    setClearing(true);
+    try {
+      const n = await clearDownloads(server.uuid, stateFilter);
+      addToast(`Cleared ${n} ${n === 1 ? 'entry' : 'entries'}`, 'success');
+      await loadDownloads(1, false);
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const handleArchiveAll = async () => {
+    const suggested = `calaworkshop-archive-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`;
+    const name = window.prompt('Name this archive (.tar.gz is added automatically):', suggested);
+    if (name === null) return; // cancelled
+    setArchiving(true);
+    try {
+      const res = await archiveInstalled(server.uuid, name);
+      addToast(
+        res.archived > 0
+          ? `Archived ${res.archived} item${res.archived === 1 ? '' : 's'} to ${res.file}`
+          : 'Nothing to archive',
+        res.archived > 0 ? 'success' : 'info',
+      );
+      loadArchives();
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    if (!selectedArchive) return;
+    if (
+      !window.confirm(
+        `Restore "${selectedArchive}"? This unpacks the archived files back into the server volume and re-tracks them.`,
+      )
+    ) {
+      return;
+    }
+    setRestoring(true);
+    try {
+      const res = await restoreArchive(server.uuid, selectedArchive);
+      addToast(`Restored ${res.restored} item${res.restored === 1 ? '' : 's'} from ${res.file}`, 'success');
+      loadInstalled();
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  const handleRemoveAll = async () => {
+    if (
+      !window.confirm(
+        'Remove ALL tracked Workshop content from this server? This deletes the installed files from the server volume and cannot be undone.',
+      )
+    ) {
+      return;
+    }
+    setRemovingAll(true);
+    try {
+      const removed = await removeAllInstalled(server.uuid);
+      addToast(`Removed ${removed} installed item${removed === 1 ? '' : 's'}`, 'success');
+      loadInstalled();
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+    } finally {
+      setRemovingAll(false);
     }
   };
 
@@ -251,9 +538,10 @@ export default function WorkshopPage() {
       workshopId,
       account: config?.canLinkSteam ? account : null,
       archive,
+      installPath: path,
     });
     setJobs((prev) => [{ id: jobId, workshopId, state, title }, ...prev]);
-    void pollJob(jobId, path);
+    startPoll(jobId);
   };
 
   const handleInstall = async () => {
@@ -357,6 +645,11 @@ export default function WorkshopPage() {
     if (!preset || !collectionPreview) return;
     const collectionId = parseWorkshopId(collectionInput);
     if (!collectionId) return;
+    const path = installPath.trim();
+    if (!path) {
+      addToast('Install path is required', 'error');
+      return;
+    }
     if (accountRequired && !account) {
       addToast('Select a linked Steam account for this game', 'error');
       return;
@@ -367,8 +660,8 @@ export default function WorkshopPage() {
         appId: preset.appId,
         collectionId,
         account: config?.canLinkSteam ? account : null,
+        installPath: path,
       });
-      const path = installPath.trim();
       const rows = result.jobs.map((job, index) => ({
         id: (job as any).jobId ?? (job as any).job_id,
         workshopId: collectionPreview.children[index]?.publishedFileId ?? 0,
@@ -377,9 +670,18 @@ export default function WorkshopPage() {
       }));
       setJobs((prev) => [...rows, ...prev]);
       for (const row of rows) {
-        if (row.id) void pollJob(row.id, path);
+        if (row.id) startPoll(row.id);
       }
-      addToast(`Queued ${rows.length} collection items`, 'success');
+      const alreadyInstalled = (result.skipped ?? []).filter((s) =>
+        s.reason?.toLowerCase().includes('already installed'),
+      ).length;
+      const skippedNote = alreadyInstalled > 0 ? `, skipped ${alreadyInstalled} already installed` : '';
+      addToast(
+        rows.length > 0
+          ? `Queued ${rows.length} collection item${rows.length === 1 ? '' : 's'}${skippedNote}`
+          : `Nothing to download${skippedNote || ' — collection already installed'}`,
+        rows.length > 0 ? 'success' : 'info',
+      );
     } catch (err) {
       addToast(httpErrorToHuman(err), 'error');
     } finally {
@@ -401,11 +703,17 @@ export default function WorkshopPage() {
   const handleDeleteJob = async (job: JobRow) => {
     try {
       await deleteDownload(server.uuid, job.id);
+      polledIds.current.delete(job.id);
       setJobs((prev) => prev.filter((j) => j.id !== job.id));
+      setHistory((prev) => prev.filter((j) => j.id !== job.id));
+      setHistoryTotal((prev) => Math.max(0, prev - 1));
     } catch (err) {
       addToast(httpErrorToHuman(err), 'error');
     }
   };
+
+  const historyTotalPages = Math.max(1, Math.ceil(historyTotal / historyPerPage));
+  const activeJobs = jobs.filter((job) => isActiveState(job.state));
 
   const handleTrack = async (entry: InstalledEntry) => {
     try {
@@ -685,9 +993,38 @@ export default function WorkshopPage() {
           </Card>
         </ServerCan>
 
-        {jobs.length > 0 ? (
+        {pendingResumeCount > 0 ? (
+          <Alert color='yellow' title={`${pendingResumeCount} downloads pending from a previous session`}>
+            <Text size='sm' mb='xs'>
+              Polling was paused so a large backlog doesn't overload the panel on page load. Resume to
+              keep installing them, or cancel them all (already-installed files are untouched).
+            </Text>
+            <Group gap='xs'>
+              <ServerCan action='workshop.install'>
+                <Button size='xs' onClick={resumePendingPolls}>Resume</Button>
+              </ServerCan>
+              <ServerCan action='workshop.install'>
+                <Button size='xs' color='red' variant='light' loading={cancelling} onClick={handleCancelAll}>
+                  Cancel all
+                </Button>
+              </ServerCan>
+            </Group>
+          </Alert>
+        ) : null}
+
+        {activeJobs.length > 0 ? (
           <Card withBorder radius='md' padding='lg'>
-            <Title order={4} mb='sm'>Recent downloads</Title>
+            <Group justify='space-between' mb='sm'>
+              <Title order={4}>Downloading ({activeJobs.length})</Title>
+              <Group gap='sm'>
+                <Text size='xs' c='dimmed'>Large collections are paced — items wait in “queued” until a download slot is free.</Text>
+                <ServerCan action='workshop.install'>
+                  <Button size='xs' color='red' variant='subtle' loading={cancelling} onClick={handleCancelAll}>
+                    Cancel all
+                  </Button>
+                </ServerCan>
+              </Group>
+            </Group>
             <Table>
               <Table.Thead>
                 <Table.Tr>
@@ -698,7 +1035,7 @@ export default function WorkshopPage() {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {jobs.map((job) => (
+                {activeJobs.map((job) => (
                   <Table.Tr key={job.id}>
                     <Table.Td>{job.title ?? (job.workshopId || job.id)}</Table.Td>
                     <Table.Td>{job.fileName ?? '-'}</Table.Td>
@@ -708,7 +1045,7 @@ export default function WorkshopPage() {
                     </Table.Td>
                     <Table.Td align='right'>
                       <ServerCan action='workshop.install'>
-                        <ActionIcon color='red' variant='subtle' aria-label='Remove recent download' title='Remove recent download' onClick={() => handleDeleteJob(job)}>
+                        <ActionIcon color='red' variant='subtle' aria-label='Remove download' title='Remove download' onClick={() => handleDeleteJob(job)}>
                           <FontAwesomeIcon icon={faTrash} />
                         </ActionIcon>
                       </ServerCan>
@@ -720,11 +1057,162 @@ export default function WorkshopPage() {
           </Card>
         ) : null}
 
+        {history.length > 0 || historyTotal > 0 ? (
+          <Card withBorder radius='md' padding='lg'>
+            <Group justify='space-between' mb='sm'>
+              <Title order={4}>Download history</Title>
+              <ServerCan action='workshop.install'>
+                <Group gap='xs'>
+                  <Button
+                    size='xs'
+                    variant='light'
+                    color='orange'
+                    leftSection={<FontAwesomeIcon icon={faRotateRight} />}
+                    loading={retrying}
+                    onClick={handleRetryFailed}
+                  >
+                    Retry failed
+                  </Button>
+                  <Menu shadow='md' position='bottom-end'>
+                    <Menu.Target>
+                      <Button
+                        size='xs'
+                        variant='light'
+                        color='red'
+                        leftSection={<FontAwesomeIcon icon={faBroom} />}
+                        loading={clearing}
+                      >
+                        Clear
+                      </Button>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item onClick={() => void handleClearHistory('failed')}>
+                        Clear failed
+                      </Menu.Item>
+                      <Menu.Item onClick={() => void handleClearHistory('installed')}>
+                        Clear completed
+                      </Menu.Item>
+                      <Menu.Item color='red' onClick={() => void handleClearHistory()}>
+                        Clear all history
+                      </Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
+                </Group>
+              </ServerCan>
+            </Group>
+            <Table>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Workshop</Table.Th>
+                  <Table.Th>File</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                  <Table.Th />
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {history.map((job) => (
+                  <Table.Tr key={job.id}>
+                    <Table.Td>{job.title ?? (job.workshopId || job.id)}</Table.Td>
+                    <Table.Td>{job.fileName ?? '-'}</Table.Td>
+                    <Table.Td>
+                      <Badge color={stateColor(job.state)}>{job.state}</Badge>
+                      {job.error ? <Text size='xs' c='red'>{job.error}</Text> : null}
+                    </Table.Td>
+                    <Table.Td align='right'>
+                      <ServerCan action='workshop.install'>
+                        <ActionIcon color='red' variant='subtle' aria-label='Remove from history' title='Remove from history' onClick={() => handleDeleteJob(job)}>
+                          <FontAwesomeIcon icon={faTrash} />
+                        </ActionIcon>
+                      </ServerCan>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+            {historyTotalPages > 1 ? (
+              <Group justify='center' gap='sm' mt='sm'>
+                <Button
+                  size='xs'
+                  variant='default'
+                  disabled={historyPage <= 1}
+                  onClick={() => void loadDownloads(historyPage - 1)}
+                >
+                  Previous
+                </Button>
+                <Text size='sm' c='dimmed'>Page {historyPage} of {historyTotalPages}</Text>
+                <Button
+                  size='xs'
+                  variant='default'
+                  disabled={historyPage >= historyTotalPages}
+                  onClick={() => void loadDownloads(historyPage + 1)}
+                >
+                  Next
+                </Button>
+              </Group>
+            ) : null}
+          </Card>
+        ) : null}
+
         <Card withBorder radius='md' padding='lg'>
           <Group justify='space-between' mb='sm'>
             <Title order={4}>Installed content</Title>
-            <Button variant='subtle' leftSection={<FontAwesomeIcon icon={faRotate} />} onClick={loadInstalled}>Refresh</Button>
+            <Group gap='xs'>
+              {installed.some((entry) => entry.source !== 'unmanaged') ? (
+                <>
+                  <ServerCan action='workshop.install'>
+                    <Button
+                      variant='light'
+                      leftSection={<FontAwesomeIcon icon={faBoxArchive} />}
+                      loading={archiving}
+                      onClick={handleArchiveAll}
+                    >
+                      Archive all
+                    </Button>
+                  </ServerCan>
+                  <ServerCan action='workshop.remove'>
+                    <Button
+                      variant='light'
+                      color='red'
+                      leftSection={<FontAwesomeIcon icon={faTrash} />}
+                      loading={removingAll}
+                      onClick={handleRemoveAll}
+                    >
+                      Remove all
+                    </Button>
+                  </ServerCan>
+                </>
+              ) : null}
+              <Button variant='subtle' leftSection={<FontAwesomeIcon icon={faRotate} />} onClick={loadInstalled}>Refresh</Button>
+            </Group>
           </Group>
+          {archives.length > 0 ? (
+            <ServerCan action='workshop.install'>
+              <Group gap='xs' mb='sm' align='flex-end'>
+                <Select
+                  label='Restore from archive'
+                  description='Unpacks a backup and re-tracks its items'
+                  data={archives.map((a) => ({
+                    value: a.file,
+                    label: `${a.file} (${a.itemCount} item${a.itemCount === 1 ? '' : 's'})`,
+                  }))}
+                  value={selectedArchive}
+                  onChange={setSelectedArchive}
+                  searchable
+                  style={{ flex: 1, maxWidth: 480 }}
+                />
+                <Button
+                  variant='light'
+                  color='blue'
+                  leftSection={<FontAwesomeIcon icon={faRotateRight} />}
+                  loading={restoring}
+                  disabled={!selectedArchive}
+                  onClick={handleRestore}
+                >
+                  Restore
+                </Button>
+              </Group>
+            </ServerCan>
+          ) : null}
           {installedLoading ? (
             <Loader size='sm' />
           ) : installed.length === 0 ? (

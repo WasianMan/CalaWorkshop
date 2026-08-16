@@ -1,5 +1,5 @@
 import { axiosInstance } from '@/api/axios.ts';
-import type { GamePreset } from '../getConfig.ts';
+import { presetFromWire, type GamePreset } from '../getConfig.ts';
 
 export type AdminSettings = {
   helperUrl: string;
@@ -11,5 +11,11 @@ export type AdminSettings = {
 
 export default async (): Promise<AdminSettings> => {
   const { data } = await axiosInstance.get(`/api/admin/extensions/dev.wasian.calaworkshop/settings`);
-  return data;
+  return {
+    helperUrl: data.helper_url ?? '',
+    helperTokenSet: data.helper_token_set ?? false,
+    steamApiKeySet: data.steam_api_key_set ?? false,
+    defaultAnonymous: data.default_anonymous ?? true,
+    gamePresets: (data.game_presets ?? []).map(presetFromWire),
+  };
 };

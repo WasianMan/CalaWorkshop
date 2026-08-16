@@ -35,7 +35,7 @@ export async function previewCollection(
 
 export async function installCollection(
   serverUuid: string,
-  input: { appId: number; collectionId: number; account?: string | null },
+  input: { appId: number; collectionId: number; account?: string | null; installPath?: string | null },
 ): Promise<CollectionInstallResult> {
   const { data } = await axiosInstance.post(
     `/api/client/servers/${serverUuid}/calaworkshop/collections/install`,
@@ -43,7 +43,14 @@ export async function installCollection(
       app_id: input.appId,
       collection_id: input.collectionId,
       account: input.account ?? null,
+      install_path: input.installPath ?? null,
     },
   );
-  return data;
+  return {
+    collectionId: data.collectionId ?? input.collectionId,
+    // The response envelope is camelCase, but the nested job rows come from the
+    // downloads route and keep their raw snake_case `job_id`.
+    jobs: (data.jobs ?? []).map((j: any) => ({ jobId: j.job_id, state: j.state })),
+    skipped: data.skipped ?? [],
+  };
 }

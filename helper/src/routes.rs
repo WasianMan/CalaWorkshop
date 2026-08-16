@@ -28,6 +28,12 @@ pub fn router(state: AppState) -> Router {
         .route("/files/:id", get(get_file))
         .route("/accounts", get(list_accounts))
         .route("/accounts/login", post(post_login))
+        .route("/accounts/login-sessions", post(post_login_session))
+        .route("/accounts/login-sessions/qr", post(post_login_session_qr))
+        .route(
+            "/accounts/login-sessions/:id",
+            get(get_login_session).delete(delete_login_session),
+        )
         .route("/accounts/:label", delete(delete_account))
         .with_state(state)
 }
@@ -194,6 +200,24 @@ async fn run_download(
     workshop_id: u64,
     install_rule: crate::steamcmd::InstallRule,
 ) {
+    // Wait for a download slot. The job stays `queued` while blocked here, which
+    // is exactly how a big collection gets paced: only `max_concurrent` jobs hold
+    // a permit (and run steamcmd) at once; the rest queue. The permit is released
+    // when `_permit` drops at the end of this function.
+    let _permit = match state.download_slots.clone().acquire_owned().await {
+        Ok(permit) => permit,
+        Err(_) => {
+            // Semaphore closed only on shutdown; treat as a failed job.
+            state
+                .update_job(&id, |j| {
+                    j.state = JobState::Failed;
+                    j.error = Some("helper is shutting down".to_string());
+                })
+                .await;
+            return;
+        }
+    };
+
     state
         .update_job(&id, |j| j.state = JobState::Downloading)
         .await;
@@ -263,8 +287,15 @@ async fn do_download(
         anyhow::bail!("no cached session for account '{label}' — call POST /accounts/login first");
     }
 
-    let content =
-        steamcmd::download_item(config, &workdir, username.as_deref(), app_id, workshop_id).await?;
+    let content = download_with_retry(
+        config,
+        &workdir,
+        username.as_deref(),
+        app_id,
+        workshop_id,
+        id,
+    )
+    .await?;
 
     // Prepare the job artifact dir.
     let job_dir = config.job_dir(&id);
@@ -302,6 +333,74 @@ async fn do_download(
             .collect();
         Ok((file_name, files, size))
     }
+}
+
+/// How many times to attempt a single item's steamcmd download before giving up.
+const DOWNLOAD_ATTEMPTS: usize = 4;
+/// Backoff applied *before* each retry (index 0 is the wait before attempt #2).
+/// Kept moderate so a retrying worker doesn't hold its slot too long; anything
+/// still failing after this is left for the extension's "retry failed" action.
+const RETRY_BACKOFF: [u64; 3] = [3, 8, 20];
+
+/// Run `steamcmd::download_item` with bounded retries on *transient* failures
+/// (Steam rate limits, dropped connections, timeouts). Permanent failures
+/// (no subscription, invalid item, missing session) fail fast without retrying.
+async fn download_with_retry(
+    config: &crate::config::Config,
+    workdir: &Path,
+    username: Option<&str>,
+    app_id: u64,
+    workshop_id: u64,
+    id: Uuid,
+) -> anyhow::Result<std::path::PathBuf> {
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 0..DOWNLOAD_ATTEMPTS {
+        match steamcmd::download_item(config, workdir, username, app_id, workshop_id).await {
+            Ok(content) => return Ok(content),
+            Err(err) => {
+                let transient = is_transient_error(&format!("{err:#}"));
+                let last_attempt = attempt + 1 >= DOWNLOAD_ATTEMPTS;
+                if !transient || last_attempt {
+                    if transient {
+                        tracing::warn!(%id, attempt = attempt + 1, error = %format!("{err:#}"), "transient download error, retries exhausted");
+                    }
+                    return Err(err);
+                }
+                let wait = RETRY_BACKOFF[attempt.min(RETRY_BACKOFF.len() - 1)];
+                tracing::warn!(%id, attempt = attempt + 1, wait_secs = wait, error = %format!("{err:#}"), "transient download error, backing off then retrying");
+                last_err = Some(err);
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("steamcmd download failed")))
+}
+
+/// Heuristic: does this steamcmd error look like a retry-worthy transient
+/// condition (rate limiting / connectivity) rather than a permanent one?
+fn is_transient_error(msg: &str) -> bool {
+    let lower = msg.to_lowercase();
+    // Permanent conditions: never worth retrying.
+    if lower.contains("no subscription")
+        || lower.contains("invalid")
+        || lower.contains("no cached session")
+        || lower.contains("matched no files")
+        || lower.contains("not found")
+    {
+        return false;
+    }
+    lower.contains("rate limit")
+        || lower.contains("rate-limit")
+        || lower.contains("no connection")
+        || lower.contains("timeout")
+        || lower.contains("timed out")
+        || lower.contains("connection reset")
+        || lower.contains("try again")
+        || lower.contains("temporarily")
+        // steamcmd frequently reports a throttled workshop download as a bare
+        // "(Failure)" with no detail; treat that as transient too.
+        || lower.contains("(failure)")
+        || lower.contains("failed (failure)")
 }
 
 // ---------------------------------------------------------------------------
@@ -465,9 +564,120 @@ async fn post_login(
             StatusCode::UNAUTHORIZED,
             "invalid credentials",
         )),
+        LoginOutcome::RateLimited => Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Steam is rate-limiting login attempts from this server; wait a few minutes",
+        )),
         LoginOutcome::ConnectivityFailed(message) => {
             Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE, message))
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Async login sessions (password with mobile-confirmation waiting, and QR)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct LoginSessionRequest {
+    label: String,
+    username: String,
+    password: String,
+    #[serde(default)]
+    guard_code: Option<String>,
+}
+
+/// `POST /accounts/login-sessions` — start an async password login. Returns the
+/// session view immediately; poll `GET /accounts/login-sessions/{id}`.
+async fn post_login_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<LoginSessionRequest>,
+) -> ApiResult<Response> {
+    check_bearer(&headers, &state.config.token)?;
+    if req.label.trim().is_empty() || !is_safe_label(&req.label) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid label"));
+    }
+    if req.username.trim().is_empty() || req.password.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "username and password are required",
+        ));
+    }
+
+    let id = state.login_sessions.begin_password(
+        &state,
+        req.label,
+        req.username.trim().to_string(),
+        req.password,
+        req.guard_code.filter(|c| !c.trim().is_empty()),
+    );
+    let view = state
+        .login_sessions
+        .view(&id)
+        .ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "session vanished"))?;
+    Ok((StatusCode::ACCEPTED, Json(view)).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+struct QrSessionRequest {
+    label: String,
+}
+
+/// `POST /accounts/login-sessions/qr` — start a QR login. The response already
+/// carries the first scannable QR code (`qr_svg` / `challenge_url`).
+async fn post_login_session_qr(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<QrSessionRequest>,
+) -> ApiResult<Response> {
+    check_bearer(&headers, &state.config.token)?;
+    if req.label.trim().is_empty() || !is_safe_label(&req.label) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid label"));
+    }
+
+    let id = state
+        .login_sessions
+        .begin_qr(&state, req.label)
+        .await
+        .map_err(|e| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{e:#}")))?;
+    let view = state
+        .login_sessions
+        .view(&id)
+        .ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "session vanished"))?;
+    Ok((StatusCode::ACCEPTED, Json(view)).into_response())
+}
+
+/// `GET /accounts/login-sessions/{id}` — poll a login session.
+async fn get_login_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<Uuid>,
+) -> ApiResult<Response> {
+    check_bearer(&headers, &state.config.token)?;
+    match state.login_sessions.view(&id) {
+        Some(view) => Ok(Json(view).into_response()),
+        None => Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "unknown login session",
+        )),
+    }
+}
+
+/// `DELETE /accounts/login-sessions/{id}` — cancel/abandon a login session.
+async fn delete_login_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<Uuid>,
+) -> ApiResult<Response> {
+    check_bearer(&headers, &state.config.token)?;
+    if state.login_sessions.cancel(&id) {
+        Ok(StatusCode::NO_CONTENT.into_response())
+    } else {
+        Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "unknown login session",
+        ))
     }
 }
 

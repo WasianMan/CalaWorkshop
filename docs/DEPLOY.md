@@ -57,6 +57,9 @@ The important changes are:
        - 'WORKSHOP_HELPER_TOKEN=${WORKSHOP_HELPER_TOKEN}'
        - WORKSHOP_HELPER_BIND=0.0.0.0:8090
        - WORKSHOP_DATA_DIR=/data
+       # Optional: max concurrent SteamCMD downloads (default 3). Raise/lower to
+       # trade throughput against Steam rate limits on large collections.
+       # - WORKSHOP_MAX_CONCURRENT=3
      volumes:
        - '/data/calagopus/workshop-helper:/data'
    ```
@@ -128,7 +131,7 @@ mounted to `/app/extensions`:
 
 ```bash
 mkdir -p /data/calagopus/build/extensions
-cp CalaWorkshop-v0.2.6.c7s.zip /data/calagopus/build/extensions/
+cp CalaWorkshop-v0.2.8-alpha.2.c7s.zip /data/calagopus/build/extensions/
 ```
 
 If you upload through the Extensions page and the panel does not rebuild

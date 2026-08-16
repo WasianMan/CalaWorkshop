@@ -3,6 +3,163 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
+## [0.2.8-alpha.2] - 2026-08-16
+
+Field-test polish after live verification on a production panel (1.1.4): the
+async password flow, Steam Guard code entry, clear-history, and an L4D2 install
+were all confirmed working end-to-end.
+
+### Changed
+- **Password is the default link method; QR is labeled experimental.** Live
+  testing confirmed the QR approval and token issuance work, but the SteamCMD
+  build in the helper image rejects the Steam-issued refresh token in place of
+  a password, so the session ends with the intended `qr_unsupported` fallback
+  message. The flow stays available (it self-verifies and is harmless to try)
+  for SteamCMD builds that do accept tokens.
+- Steam Guard guidance now explains Steam's hidden-code quirk observed in
+  testing: after approving the sign-in in the Steam Mobile app, Steam may still
+  require the rotating 5-character code, and the app does **not** prompt for it
+  — the UI now tells users to open the app's Steam Guard tab (shield icon) to
+  find it.
+
+## [0.2.8-alpha.1] - 2026-08-16
+
+Reworks Steam account linking around async login sessions (fixing the
+"approve on phone → no code → spins forever" loop), adds QR-code login, adds
+bulk history clearing, and updates the extension for Calagopus panel 1.1.x.
+
+### Added
+- **QR-code Steam login.** The Steam Link page defaults to a QR flow: the helper
+  starts a Steam `IAuthenticationService` auth session (SteamClient platform),
+  renders the QR server-side as SVG, and polls for approval — scan with the
+  Steam Mobile app, tap Approve, done. No password ever reaches the helper. The
+  Steam-issued refresh token is then handed to steamcmd in place of a password
+  and verified with the usual passwordless check; if a steamcmd build refuses
+  token sign-ins the session fails cleanly with `qr_unsupported` and the
+  password flow still works. New helper endpoints under
+  `/accounts/login-sessions` (see `CONTRACT.md`).
+- **Async login sessions with mobile-confirmation waiting.** Password logins now
+  run in a background session the UI polls. When steamcmd asks for an in-app
+  approval, the UI says so (`awaiting_mobile_confirmation`) and the helper waits
+  up to 5 minutes instead of killing steamcmd at 120s — previously an approval
+  that arrived "too late" looked like a hang, and resubmitting started a fresh
+  login (and a fresh push prompt) each time, which Steam eventually
+  rate-limited as suspicious. Steam rate limiting is now also detected and
+  reported as "wait a few minutes" instead of "invalid credentials".
+- **Clear download history.** `POST /downloads/clear` with an optional
+  `{"state": "failed" | "installed"}` filter, plus a "Clear" menu on the
+  Download history card (clear failed / clear completed / clear all). Database
+  only — installed files and helper artifacts are untouched.
+- Steam Guard code entry now hints where the code is (emailed code vs the
+  rotating 5-character code on the app's Steam Guard tab).
+
+### Fixed
+- **Panel 1.1.x response-shape compatibility.** Panel 1.1 removed the global
+  axios interceptor that camelCased every API response, so responses now arrive
+  with the backend's raw snake_case keys. This hard-crashed the admin
+  configuration page ("Cannot read properties of undefined (reading 'map')" —
+  `gamePresets` was undefined) and quietly broke pagination, job metadata,
+  installed-content fields, and collection job ids. Every frontend API wrapper
+  now maps wire keys explicitly; page components keep their camelCase types.
+
+### Changed
+- **Requires Calagopus panel ≥ 1.1.0** (`Metadata.toml` now enforces it). The
+  panel's wings-api file-listing binding changed shape in 1.1.0; the installed
+  content scan now uses the new `Query`-based call. Verified against panel
+  1.1.3 and 1.1.4 (backend `cargo check` clean; frontend `tsc` + production
+  `vite build` clean with the extension bundled).
+- The legacy synchronous `POST /accounts/login` helper endpoint is kept for
+  compatibility, but the extension UI now uses login sessions exclusively.
+- Helper now needs outbound HTTPS to `api.steampowered.com` for the QR flow
+  (TLS roots are bundled in the binary; no system CA store required).
+
+### Upgrade notes
+- Update the panel image and install this extension version together: the old
+  extension does not compile on panel ≥ 1.1.0 (the heavy supervisor falls back
+  to the stock panel — panel stays up, Workshop tab absent — until the new
+  `.c7s.zip` is installed and extensions are rebuilt), and this extension
+  version refuses to install on panels older than 1.1.0.
+- Update the helper image to the matching tag at the same time; the new Steam
+  Link UI talks to the new `/accounts/login-sessions` endpoints.
+- No database migration changes; existing linked accounts, presets, download
+  history, and IP allocations are untouched.
+
+## [0.2.7-alpha.3] - 2026-06-16
+
+Fixes installs failing after a large batch finished downloading.
+
+### Fixed
+- Downloaded items reaching `ready` could fail to install with "invalid path" —
+  the install destination was read from transient UI state, which is empty after a
+  page reload, so resuming a finished batch spammed the error and lost the jobs.
+  The install path is now **persisted on each download job** (`create_download`
+  stores it; `GET /downloads/{id}` returns it) and the install step uses that, so
+  installs survive reloads.
+
+### Changed
+- Installs are paced to at most 3 concurrent Wings operations, so a large batch of
+  already-`ready` jobs (e.g. resumed after a reload) no longer fires dozens of
+  volume operations at once.
+- Per-item install toasts are suppressed for large batches (the download/installed
+  lists show progress instead), and a missing install path now warns once rather
+  than once per ready job.
+
+## [0.2.7-alpha.2] - 2026-06-16
+
+Hardening on top of alpha.1: closes the remaining ways a big (re)install could
+overload the panel or Steam, and adds a way to recover from a stuck backlog.
+
+### Added
+- **Cancel all active.** `POST /downloads/cancel` marks every queued/downloading
+  job failed (database-only, no helper/Steam calls) to clear a stuck backlog —
+  e.g. after a helper restart leaves jobs that can never complete. The Workshop
+  page exposes it as a "Cancel all" button.
+
+### Changed
+- Collection installs and retries no longer make a Steam **Web API** metadata call
+  per item — they reuse the title/preview already known from the collection
+  preview (or the stored job row). This removes a second rate-limit surface that
+  could 429 / error out on big batches independently of SteamCMD.
+- On page load, a large backlog of still-pending downloads (e.g. left over from a
+  crashed run) is no longer auto-polled immediately; the page shows a banner to
+  resume or cancel them, so opening the page can't stampede the backend. Per-job
+  polling also backs off further for very large active counts.
+
+## [0.2.7-alpha.1] - 2026-06-16
+
+Prerelease focused on making large collections (100+ items) download reliably.
+
+### Added
+- **Paced downloads.** The helper now caps how many SteamCMD downloads run at
+  once (env `WORKSHOP_MAX_CONCURRENT`, default 3); the rest stay `queued` until a
+  slot frees. This stops large collections from spawning dozens of SteamCMD
+  processes at once and tripping Steam's rate limiter.
+- **Automatic retries.** Transient download failures (rate limit, dropped
+  connection, timeout) are retried with backoff before a job is marked failed.
+  Permanent failures (no subscription, invalid item, missing session) still fail
+  fast.
+- **Retry failed.** A new action re-dispatches every failed download job for a
+  server (`POST /downloads/retry`), reusing existing rows so retries don't pile up
+  duplicates.
+- **Download-missing-only collection installs.** Re-installing a collection now
+  skips items already in the installed registry and reports them as skipped, so a
+  half-finished batch can be resumed by simply installing the collection again.
+- **Archive / restore / remove-all for installed content.** Compress all tracked
+  Workshop content into a named `.tar.gz` at the server root
+  (`POST /installed/archive`), list created archives (`GET /installed/archives`),
+  restore one back into the volume and re-track its items
+  (`POST /installed/restore`), or delete everything (`POST /installed/remove-all`).
+
+### Changed
+- The collection install cap was raised from 100 to 500 items.
+- The downloads list (`GET /downloads`) now returns all active jobs plus a
+  paginated history of terminal jobs, instead of a single 50-row list — active
+  downloads in a big batch are never hidden behind completed ones, and the
+  Workshop page renders them as separate "Downloading" and "Download history"
+  sections. Reloading the page resumes polling of in-flight jobs.
+- The Workshop page slows its per-job status polling as the active batch grows, to
+  spare the panel backend during large installs.
+
 ## [0.2.6] - 2026-06-08
 
 ### Added

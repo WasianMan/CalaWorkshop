@@ -1,5 +1,5 @@
 import { axiosInstance } from '@/api/axios.ts';
-import type { InstalledEntry } from './listInstalled.ts';
+import { installedFromWire, type InstalledEntry } from './listInstalled.ts';
 
 export default async (serverUuid: string, item: InstalledEntry): Promise<InstalledEntry> => {
   const { data } = await axiosInstance.post(
@@ -12,5 +12,5 @@ export default async (serverUuid: string, item: InstalledEntry): Promise<Install
       files: item.files,
     },
   );
-  return data;
+  return installedFromWire(data);
 };

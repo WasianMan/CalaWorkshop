@@ -3,6 +3,25 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are tag-driven.
 
+## [0.2.8-alpha.2] - 2026-08-16
+
+Field-test polish after live verification on a production panel (1.1.4): the
+async password flow, Steam Guard code entry, clear-history, and an L4D2 install
+were all confirmed working end-to-end.
+
+### Changed
+- **Password is the default link method; QR is labeled experimental.** Live
+  testing confirmed the QR approval and token issuance work, but the SteamCMD
+  build in the helper image rejects the Steam-issued refresh token in place of
+  a password, so the session ends with the intended `qr_unsupported` fallback
+  message. The flow stays available (it self-verifies and is harmless to try)
+  for SteamCMD builds that do accept tokens.
+- Steam Guard guidance now explains Steam's hidden-code quirk observed in
+  testing: after approving the sign-in in the Steam Mobile app, Steam may still
+  require the rotating 5-character code, and the app does **not** prompt for it
+  — the UI now tells users to open the app's Steam Guard tab (shield icon) to
+  find it.
+
 ## [0.2.8-alpha.1] - 2026-08-16
 
 Reworks Steam account linking around async login sessions (fixing the

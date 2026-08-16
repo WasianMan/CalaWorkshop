@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "calaworkshop-helper"
-version = "0.2.8-alpha.1"
+version = "0.2.8-alpha.2"
 dependencies = [
  "anyhow",
  "axum",

@@ -54,7 +54,7 @@ export default function SteamLinkPage() {
   const { addToast } = useToast();
 
   const [accounts, setAccounts] = useState<SteamAccount[]>([]);
-  const [method, setMethod] = useState<'qr' | 'password'>('qr');
+  const [method, setMethod] = useState<'qr' | 'password'>('password');
   const [label, setLabel] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -171,8 +171,12 @@ export default function SteamLinkPage() {
           Anonymous downloads work for some games, but many (including Left 4 Dead 2) require an
           account that owns the game. Linking signs the helper into your Steam account once and
           caches the session — your password is never stored. Accounts you link here are tied to
-          your user and are not visible to other panel users. The QR method is the easiest: scan
-          with the Steam Mobile app and approve, no password needed.
+          your user and are not visible to other panel users. Heads up on Steam Guard: even after
+          you approve the sign-in in the Steam Mobile app, Steam may still ask for a code — the
+          app will not prompt you for it, so open the app's Steam Guard tab (shield icon) to find
+          the rotating 5-character code. The QR method is experimental: it needs no password, but
+          most SteamCMD builds reject the handoff — if that happens you'll get a clear message and
+          can use the password method instead.
         </Alert>
 
         <Card withBorder radius='md' padding='lg'>
@@ -188,8 +192,8 @@ export default function SteamLinkPage() {
               }}
               disabled={sessionActive}
               data={[
-                { label: 'QR code (Steam Mobile app)', value: 'qr' },
                 { label: 'Password', value: 'password' },
+                { label: 'QR code (experimental)', value: 'qr' },
               ]}
             />
 
@@ -224,7 +228,7 @@ export default function SteamLinkPage() {
                     description={
                       session?.guardHint === 'email'
                         ? 'Steam emailed a code to the address on the account — enter it here.'
-                        : "Open the Steam Mobile app and enter the 5-character code from the Steam Guard tab (the rotating code), then submit again. Approving in the app instead also works — resubmit and approve when prompted."
+                        : 'Steam wants the rotating 5-character code. The Steam Mobile app will NOT prompt you for it — open the app yourself, go to the Steam Guard tab (shield icon), and copy the code shown there, then submit again.'
                     }
                     value={guardCode}
                     onChange={(e) => setGuardCode(e.currentTarget.value)}
@@ -253,8 +257,10 @@ export default function SteamLinkPage() {
                   ) : null}
                   {session.state === 'awaiting_mobile_confirmation' ? (
                     <Text size='xs' c='dimmed'>
-                      Keep this page open — the approval is usually instant once you tap. If the
-                      app only shows a code instead of an approval, cancel and use the code field.
+                      Keep this page open — the approval is usually instant once you tap. Steam
+                      may still ask for a code after you approve; the app won't prompt you for it,
+                      so grab the rotating code from the app's Steam Guard tab (shield icon) when
+                      the code field appears here.
                     </Text>
                   ) : null}
                 </Stack>

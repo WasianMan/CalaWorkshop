@@ -64,7 +64,9 @@ pub async fn get_by_label(
 /// Reserve (or reuse) the opaque helper label for `(user, label)` and record the
 /// Steam username. A new link gets a fresh random `helper_label`; re-linking an
 /// existing label keeps the original one so the helper's cached session and any
-/// pending Steam Guard retry stay addressable.
+/// pending Steam Guard retry stay addressable. Passing `None` for the username
+/// (the QR flow, where the account is only known after approval) keeps any
+/// previously recorded username instead of clearing it.
 pub async fn upsert(
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     user_uuid: uuid::Uuid,
@@ -80,7 +82,7 @@ pub async fn upsert(
         ON CONFLICT (user_uuid, label)
         DO UPDATE SET
             helper_label = COALESCE(dev_wasian_calaworkshop_steam_links.helper_label, EXCLUDED.helper_label),
-            steam_username = EXCLUDED.steam_username,
+            steam_username = COALESCE(EXCLUDED.steam_username, dev_wasian_calaworkshop_steam_links.steam_username),
             updated_at = now()
         RETURNING label, helper_label, steam_username
         "#,
@@ -92,6 +94,29 @@ pub async fn upsert(
     .fetch_one(db)
     .await?;
     Ok(from_row(row))
+}
+
+/// Record the Steam username for an existing link (used when a QR login
+/// completes and the account name becomes known).
+pub async fn set_username(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    user_uuid: uuid::Uuid,
+    label: &str,
+    steam_username: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        UPDATE dev_wasian_calaworkshop_steam_links
+        SET steam_username = $3, updated_at = now()
+        WHERE user_uuid = $1 AND label = $2
+        "#,
+    )
+    .bind(user_uuid)
+    .bind(label)
+    .bind(steam_username)
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// Delete a user's link, returning the opaque helper label so the caller can

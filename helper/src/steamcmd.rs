@@ -32,6 +32,10 @@ const MAX_GMA_STRING_LEN: usize = 4096;
 /// a worker forever. On elapse the child is dropped and killed (`kill_on_drop`).
 const CONNECTIVITY_TIMEOUT: Duration = Duration::from_secs(90);
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(120);
+/// Interactive (session-based) logins may legitimately sit waiting for the user
+/// to tap "Approve" in the Steam Mobile app, so they get a much longer leash
+/// than the legacy synchronous login.
+const INTERACTIVE_LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(3600);
 
 /// Global steamcmd flags that keep it from ever blocking on an interactive
@@ -71,7 +75,8 @@ async fn run_steamcmd(
     }
 }
 
-/// Outcome of a steamcmd login attempt (used by `POST /accounts/login`).
+/// Outcome of a steamcmd login attempt (used by `POST /accounts/login` and the
+/// session-based login flows).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoginOutcome {
     /// Session established / refreshed successfully.
@@ -80,6 +85,8 @@ pub enum LoginOutcome {
     NeedsGuard,
     /// Credentials were rejected.
     InvalidCredentials,
+    /// Steam is rate-limiting login attempts (typically after several retries).
+    RateLimited,
     /// SteamCMD could not reach Steam, so credentials were not tested.
     ConnectivityFailed(String),
 }
@@ -199,6 +206,126 @@ pub async fn login(
     parse_login_outcome(&combined)
 }
 
+/// Session-based login used by the async login flows.
+///
+/// Unlike [`login`], this streams steamcmd's stdout while it runs so a Steam
+/// Guard *mobile confirmation* wait can be surfaced to the user immediately
+/// (`on_waiting` fires once, the first time steamcmd asks for an in-app
+/// approval), and it waits [`INTERACTIVE_LOGIN_TIMEOUT`] instead of killing the
+/// process while the user is still reaching for their phone.
+///
+/// `secret` is the account password — or a Steam-issued refresh token for the
+/// QR flow, which modern steamcmd accepts in place of a password. Returns the
+/// parsed outcome plus the combined output so callers can derive hints (e.g.
+/// email vs device Guard codes).
+pub async fn login_interactive(
+    config: &Config,
+    workdir: &Path,
+    username: &str,
+    secret: &str,
+    guard_code: Option<&str>,
+    on_waiting: impl FnOnce() + Send,
+) -> Result<(LoginOutcome, String)> {
+    use std::process::Stdio;
+    use tokio::io::AsyncReadExt;
+
+    tokio::fs::create_dir_all(workdir)
+        .await
+        .with_context(|| format!("creating steam workdir {}", workdir.display()))?;
+
+    let mut cmd = Command::new(&config.steamcmd_bin);
+    apply_noninteractive_flags(&mut cmd);
+    apply_steam_home(&mut cmd, workdir);
+    cmd.arg("+force_install_dir")
+        .arg(workdir)
+        .arg("+login")
+        .arg(username)
+        .arg(secret);
+    if let Some(code) = guard_code {
+        cmd.arg(code);
+    }
+    cmd.arg("+quit")
+        .current_dir(workdir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    let mut child = cmd
+        .spawn()
+        .with_context(|| format!("spawning steamcmd ({})", config.steamcmd_bin))?;
+    let mut stdout = child.stdout.take().context("steamcmd stdout unavailable")?;
+    let mut stderr = child.stderr.take().context("steamcmd stderr unavailable")?;
+
+    let stderr_task = tokio::spawn(async move {
+        let mut buf = Vec::new();
+        let _ = stderr.read_to_end(&mut buf).await;
+        buf
+    });
+
+    let deadline = tokio::time::Instant::now() + INTERACTIVE_LOGIN_TIMEOUT;
+    let mut out: Vec<u8> = Vec::new();
+    let mut on_waiting = Some(on_waiting);
+    let mut chunk = [0u8; 4096];
+
+    // Read stdout as it arrives (steamcmd's confirmation prompt may not end in
+    // a newline, so scan the accumulated bytes rather than lines).
+    loop {
+        tokio::select! {
+            read = stdout.read(&mut chunk) => match read {
+                Ok(0) => break,
+                Ok(n) => {
+                    out.extend_from_slice(&chunk[..n]);
+                    if on_waiting.is_some() {
+                        let text = String::from_utf8_lossy(&out).to_lowercase();
+                        if text.contains("confirm the login in the steam mobile app")
+                            || text.contains("waiting for confirmation")
+                        {
+                            if let Some(notify) = on_waiting.take() {
+                                notify();
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = child.kill().await;
+                    return Err(anyhow::Error::from(e).context("reading steamcmd output"));
+                }
+            },
+            _ = tokio::time::sleep_until(deadline) => {
+                let _ = child.kill().await;
+                bail!(
+                    "steamcmd login timed out after {}s",
+                    INTERACTIVE_LOGIN_TIMEOUT.as_secs()
+                );
+            }
+        }
+    }
+
+    // stdout hit EOF; the process should exit promptly. `kill_on_drop` covers
+    // the timeout path here too.
+    match tokio::time::timeout_at(deadline, child.wait()).await {
+        Ok(status) => {
+            status.context("waiting for steamcmd")?;
+        }
+        Err(_) => bail!(
+            "steamcmd login timed out after {}s",
+            INTERACTIVE_LOGIN_TIMEOUT.as_secs()
+        ),
+    }
+
+    let stderr_buf = stderr_task.await.unwrap_or_default();
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out),
+        String::from_utf8_lossy(&stderr_buf)
+    );
+    tracing::debug!(%combined, "steamcmd interactive login finished");
+
+    let outcome = parse_login_outcome(&combined)?;
+    Ok((outcome, combined))
+}
+
 /// Verify that the just-created cached session is usable without resending the
 /// password or Steam Guard code.
 pub async fn verify_cached_login(config: &Config, workdir: &Path, username: &str) -> Result<()> {
@@ -229,6 +356,9 @@ pub async fn verify_cached_login(config: &Config, workdir: &Path, username: &str
         LoginOutcome::Ok => Ok(()),
         LoginOutcome::NeedsGuard => bail!("cached SteamCMD session still requires Steam Guard"),
         LoginOutcome::InvalidCredentials => bail!("cached SteamCMD session was not accepted"),
+        LoginOutcome::RateLimited => {
+            bail!("Steam is rate-limiting login attempts; wait a few minutes and try again")
+        }
         LoginOutcome::ConnectivityFailed(message) => bail!(message),
     }
 }
@@ -253,6 +383,13 @@ fn parse_login_outcome(combined: &str) -> Result<LoginOutcome> {
     // needing a code (and the caller would never persist the session).
     if login_output_indicates_success(combined) {
         return Ok(LoginOutcome::Ok);
+    }
+
+    // Steam throttles repeated login attempts per IP; steamcmd surfaces it as
+    // "Rate Limit Exceeded". Report it distinctly so the user is told to wait
+    // instead of retrying (which extends the throttle).
+    if lower.contains("rate limit") {
+        return Ok(LoginOutcome::RateLimited);
     }
 
     if lower.contains("steam guard")
@@ -1235,6 +1372,15 @@ mod tests {
     fn login_guard_prompt_is_detected() {
         let outcome = parse_login_outcome("Steam Guard code required").expect("parse login output");
         assert_eq!(outcome, LoginOutcome::NeedsGuard);
+    }
+
+    #[test]
+    fn login_rate_limit_is_not_invalid_credentials() {
+        let outcome = parse_login_outcome(
+            "Logging in user 'example' to Steam Public...FAILED (Rate Limit Exceeded)\n",
+        )
+        .expect("parse login output");
+        assert_eq!(outcome, LoginOutcome::RateLimited);
     }
 
     #[test]

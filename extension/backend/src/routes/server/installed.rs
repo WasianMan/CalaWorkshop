@@ -512,8 +512,12 @@ async fn scan_unmanaged(
     for preset in presets {
         for scan in &preset.scan {
             let path = scan.path.as_str();
+            let query = wings_api::servers_server_files_list_directory::get::Query {
+                directory: Some(path.into()),
+                ..Default::default()
+            };
             let entries = match api
-                .get_servers_server_files_list_directory(server.uuid, path)
+                .get_servers_server_files_list_directory(server.uuid, &query)
                 .await
             {
                 Ok(entries) => entries,

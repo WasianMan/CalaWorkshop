@@ -183,6 +183,72 @@ impl<'a> HelperClient<'a> {
         Ok((status, value))
     }
 
+    /// Start an async password login session on the helper. Returns the
+    /// helper's status + session view (202 on success).
+    pub async fn begin_login_session(
+        &self,
+        body: &LoginRequest,
+    ) -> Result<(u16, serde_json::Value), anyhow::Error> {
+        let resp = self
+            .client
+            .post(format!("{}/accounts/login-sessions", self.base_url))
+            .bearer_auth(&self.token)
+            .timeout(REQUEST_TIMEOUT)
+            .json(body)
+            .send()
+            .await?;
+        let status = resp.status().as_u16();
+        let value = resp.json().await.unwrap_or(serde_json::Value::Null);
+        Ok((status, value))
+    }
+
+    /// Start a QR login session on the helper. The response body already
+    /// carries the first QR code.
+    pub async fn begin_login_session_qr(
+        &self,
+        label: &str,
+    ) -> Result<(u16, serde_json::Value), anyhow::Error> {
+        let resp = self
+            .client
+            .post(format!("{}/accounts/login-sessions/qr", self.base_url))
+            .bearer_auth(&self.token)
+            .timeout(REQUEST_TIMEOUT)
+            .json(&serde_json::json!({ "label": label }))
+            .send()
+            .await?;
+        let status = resp.status().as_u16();
+        let value = resp.json().await.unwrap_or(serde_json::Value::Null);
+        Ok((status, value))
+    }
+
+    /// Poll a login session.
+    pub async fn get_login_session(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<(u16, serde_json::Value), anyhow::Error> {
+        let resp = self
+            .client
+            .get(format!("{}/accounts/login-sessions/{}", self.base_url, id))
+            .bearer_auth(&self.token)
+            .timeout(REQUEST_TIMEOUT)
+            .send()
+            .await?;
+        let status = resp.status().as_u16();
+        let value = resp.json().await.unwrap_or(serde_json::Value::Null);
+        Ok((status, value))
+    }
+
+    /// Cancel/abandon a login session. Ignores 404 (already gone).
+    pub async fn cancel_login_session(&self, id: uuid::Uuid) -> Result<(), anyhow::Error> {
+        self.client
+            .delete(format!("{}/accounts/login-sessions/{}", self.base_url, id))
+            .bearer_auth(&self.token)
+            .timeout(REQUEST_TIMEOUT)
+            .send()
+            .await?;
+        Ok(())
+    }
+
     pub async fn delete_account(&self, label: &str) -> Result<(), anyhow::Error> {
         self.client
             .delete(format!(

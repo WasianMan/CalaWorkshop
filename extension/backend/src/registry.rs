@@ -242,6 +242,30 @@ pub async fn get_download(
     Ok(row.map(download_from_row))
 }
 
+/// Delete terminal (installed/failed) history rows for a server in bulk —
+/// the "clear history" action. `state_filter` limits the sweep to one terminal
+/// state; `None` clears both. Active jobs are never touched (use
+/// `cancel_active_downloads` for those). Returns how many rows were removed.
+pub async fn clear_history_downloads(
+    db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    server_uuid: uuid::Uuid,
+    state_filter: Option<&str>,
+) -> Result<u64, sqlx::Error> {
+    let res = sqlx::query(
+        r#"
+        DELETE FROM dev_wasian_calaworkshop_download_jobs
+        WHERE server_uuid = $1
+          AND state IN ('installed', 'failed')
+          AND ($2::varchar IS NULL OR state = $2)
+        "#,
+    )
+    .bind(server_uuid)
+    .bind(state_filter)
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected())
+}
+
 pub async fn delete_download(
     db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     server_uuid: uuid::Uuid,

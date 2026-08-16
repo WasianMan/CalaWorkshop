@@ -554,12 +554,70 @@ mod cancel {
     }
 }
 
+mod clear {
+    use axum::extract::Path;
+    use serde::{Deserialize, Serialize};
+    use shared::{
+        GetState,
+        models::user::GetPermissionManager,
+        response::{ApiResponse, ApiResponseResult},
+    };
+    use utoipa::ToSchema;
+
+    #[derive(ToSchema, Deserialize)]
+    pub struct Payload {
+        /// Restrict the sweep to one terminal state (`installed` or `failed`).
+        /// Omitted/null clears the entire history.
+        #[serde(default)]
+        state: Option<String>,
+    }
+
+    #[derive(ToSchema, Serialize)]
+    struct Response {
+        /// How many history rows were removed.
+        cleared: u64,
+    }
+
+    /// Clear this server's download history (terminal jobs only) in one action.
+    /// Like the per-row remove, this only forgets history — it does not touch
+    /// installed files, the helper, or Steam.
+    #[utoipa::path(post, path = "/clear", responses(
+        (status = OK, body = inline(Response)),
+    ), params(
+        ("server" = uuid::Uuid, description = "The server ID"),
+    ))]
+    pub async fn route(
+        state: GetState,
+        permissions: GetPermissionManager,
+        Path(server): Path<uuid::Uuid>,
+        shared::Payload(data): shared::Payload<Payload>,
+    ) -> ApiResponseResult {
+        permissions.has_server_permission("workshop.install")?;
+
+        let state_filter = match data.state.as_deref() {
+            None => None,
+            Some(s @ ("installed" | "failed")) => Some(s),
+            Some(_) => {
+                return Err(ApiResponse::error(
+                    "state must be 'installed', 'failed', or omitted",
+                ));
+            }
+        };
+
+        let cleared =
+            crate::registry::clear_history_downloads(state.database.write(), server, state_filter)
+                .await?;
+        ApiResponse::new_serialized(Response { cleared }).ok()
+    }
+}
+
 pub fn router(state: &State) -> OpenApiRouter<State> {
     OpenApiRouter::new()
         .routes(routes!(get::route))
         .routes(routes!(post::route))
         .routes(routes!(retry::route))
         .routes(routes!(cancel::route))
+        .routes(routes!(clear::route))
         .nest("/{download}", _download_::router(state))
         .with_state(state.clone())
 }

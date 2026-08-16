@@ -1,4 +1,4 @@
-import { faBoxArchive, faDownload, faPlus, faRotate, faRotateRight, faSearch, faTrash } from '@fortawesome/free-solid-svg-icons';
+import { faBoxArchive, faBroom, faDownload, faPlus, faRotate, faRotateRight, faSearch, faTrash } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   ActionIcon,
@@ -9,6 +9,7 @@ import {
   Group,
   Image,
   Loader,
+  Menu,
   Select,
   SegmentedControl,
   SimpleGrid,
@@ -23,6 +24,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { httpErrorToHuman } from '@/api/axios.ts';
 import { installCollection, previewCollection, type CollectionPreview } from '../api/collections.ts';
 import cancelDownloads from '../api/cancelDownloads.ts';
+import clearDownloads from '../api/clearDownloads.ts';
 import deleteDownload from '../api/deleteDownload.ts';
 import deleteInstalled from '../api/deleteInstalled.ts';
 import archiveInstalled from '../api/archiveInstalled.ts';
@@ -152,6 +154,7 @@ export default function WorkshopPage() {
   const [historyPage, setHistoryPage] = useState(1);
   const [historyPerPage, setHistoryPerPage] = useState(25);
   const [retrying, setRetrying] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [removingAll, setRemovingAll] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -425,6 +428,32 @@ export default function WorkshopPage() {
       addToast(httpErrorToHuman(err), 'error');
     } finally {
       setRetrying(false);
+    }
+  };
+
+  const handleClearHistory = async (stateFilter?: 'installed' | 'failed') => {
+    const what =
+      stateFilter === 'failed'
+        ? 'all failed entries'
+        : stateFilter === 'installed'
+          ? 'all completed entries'
+          : 'the entire download history';
+    if (
+      !window.confirm(
+        `Clear ${what}? This only forgets history — installed files are not touched.`,
+      )
+    ) {
+      return;
+    }
+    setClearing(true);
+    try {
+      const n = await clearDownloads(server.uuid, stateFilter);
+      addToast(`Cleared ${n} ${n === 1 ? 'entry' : 'entries'}`, 'success');
+      await loadDownloads(1, false);
+    } catch (err) {
+      addToast(httpErrorToHuman(err), 'error');
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -1033,16 +1062,42 @@ export default function WorkshopPage() {
             <Group justify='space-between' mb='sm'>
               <Title order={4}>Download history</Title>
               <ServerCan action='workshop.install'>
-                <Button
-                  size='xs'
-                  variant='light'
-                  color='orange'
-                  leftSection={<FontAwesomeIcon icon={faRotateRight} />}
-                  loading={retrying}
-                  onClick={handleRetryFailed}
-                >
-                  Retry failed
-                </Button>
+                <Group gap='xs'>
+                  <Button
+                    size='xs'
+                    variant='light'
+                    color='orange'
+                    leftSection={<FontAwesomeIcon icon={faRotateRight} />}
+                    loading={retrying}
+                    onClick={handleRetryFailed}
+                  >
+                    Retry failed
+                  </Button>
+                  <Menu shadow='md' position='bottom-end'>
+                    <Menu.Target>
+                      <Button
+                        size='xs'
+                        variant='light'
+                        color='red'
+                        leftSection={<FontAwesomeIcon icon={faBroom} />}
+                        loading={clearing}
+                      >
+                        Clear
+                      </Button>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item onClick={() => void handleClearHistory('failed')}>
+                        Clear failed
+                      </Menu.Item>
+                      <Menu.Item onClick={() => void handleClearHistory('installed')}>
+                        Clear completed
+                      </Menu.Item>
+                      <Menu.Item color='red' onClick={() => void handleClearHistory()}>
+                        Clear all history
+                      </Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
+                </Group>
               </ServerCan>
             </Group>
             <Table>

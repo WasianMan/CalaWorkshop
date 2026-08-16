@@ -18,6 +18,7 @@ use std::collections::HashSet;
 use utoipa_axum::router::OpenApiRouter;
 
 mod _label_;
+pub mod sessions;
 
 /// Snapshot the extension settings, dropping the settings read guard before any
 /// network call (holding it across helper I/O can stall the whole panel).

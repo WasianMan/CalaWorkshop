@@ -6,8 +6,10 @@
 //! Calagopus dependencies of its own.
 
 mod config;
+mod login;
 mod routes;
 mod state;
+mod steamauth;
 mod steamcmd;
 
 use std::net::SocketAddr;

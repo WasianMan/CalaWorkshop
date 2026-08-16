@@ -28,6 +28,12 @@ pub fn router(state: AppState) -> Router {
         .route("/files/:id", get(get_file))
         .route("/accounts", get(list_accounts))
         .route("/accounts/login", post(post_login))
+        .route("/accounts/login-sessions", post(post_login_session))
+        .route("/accounts/login-sessions/qr", post(post_login_session_qr))
+        .route(
+            "/accounts/login-sessions/:id",
+            get(get_login_session).delete(delete_login_session),
+        )
         .route("/accounts/:label", delete(delete_account))
         .with_state(state)
 }
@@ -558,9 +564,120 @@ async fn post_login(
             StatusCode::UNAUTHORIZED,
             "invalid credentials",
         )),
+        LoginOutcome::RateLimited => Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Steam is rate-limiting login attempts from this server; wait a few minutes",
+        )),
         LoginOutcome::ConnectivityFailed(message) => {
             Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE, message))
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Async login sessions (password with mobile-confirmation waiting, and QR)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct LoginSessionRequest {
+    label: String,
+    username: String,
+    password: String,
+    #[serde(default)]
+    guard_code: Option<String>,
+}
+
+/// `POST /accounts/login-sessions` — start an async password login. Returns the
+/// session view immediately; poll `GET /accounts/login-sessions/{id}`.
+async fn post_login_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<LoginSessionRequest>,
+) -> ApiResult<Response> {
+    check_bearer(&headers, &state.config.token)?;
+    if req.label.trim().is_empty() || !is_safe_label(&req.label) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid label"));
+    }
+    if req.username.trim().is_empty() || req.password.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "username and password are required",
+        ));
+    }
+
+    let id = state.login_sessions.begin_password(
+        &state,
+        req.label,
+        req.username.trim().to_string(),
+        req.password,
+        req.guard_code.filter(|c| !c.trim().is_empty()),
+    );
+    let view = state
+        .login_sessions
+        .view(&id)
+        .ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "session vanished"))?;
+    Ok((StatusCode::ACCEPTED, Json(view)).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+struct QrSessionRequest {
+    label: String,
+}
+
+/// `POST /accounts/login-sessions/qr` — start a QR login. The response already
+/// carries the first scannable QR code (`qr_svg` / `challenge_url`).
+async fn post_login_session_qr(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<QrSessionRequest>,
+) -> ApiResult<Response> {
+    check_bearer(&headers, &state.config.token)?;
+    if req.label.trim().is_empty() || !is_safe_label(&req.label) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid label"));
+    }
+
+    let id = state
+        .login_sessions
+        .begin_qr(&state, req.label)
+        .await
+        .map_err(|e| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{e:#}")))?;
+    let view = state
+        .login_sessions
+        .view(&id)
+        .ok_or_else(|| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "session vanished"))?;
+    Ok((StatusCode::ACCEPTED, Json(view)).into_response())
+}
+
+/// `GET /accounts/login-sessions/{id}` — poll a login session.
+async fn get_login_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<Uuid>,
+) -> ApiResult<Response> {
+    check_bearer(&headers, &state.config.token)?;
+    match state.login_sessions.view(&id) {
+        Some(view) => Ok(Json(view).into_response()),
+        None => Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "unknown login session",
+        )),
+    }
+}
+
+/// `DELETE /accounts/login-sessions/{id}` — cancel/abandon a login session.
+async fn delete_login_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<Uuid>,
+) -> ApiResult<Response> {
+    check_bearer(&headers, &state.config.token)?;
+    if state.login_sessions.cancel(&id) {
+        Ok(StatusCode::NO_CONTENT.into_response())
+    } else {
+        Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "unknown login session",
+        ))
     }
 }
 

@@ -131,7 +131,7 @@ mounted to `/app/extensions`:
 
 ```bash
 mkdir -p /data/calagopus/build/extensions
-cp CalaWorkshop-v0.2.7-alpha.3.c7s.zip /data/calagopus/build/extensions/
+cp CalaWorkshop-v0.2.8-alpha.1.c7s.zip /data/calagopus/build/extensions/
 ```
 
 If you upload through the Extensions page and the panel does not rebuild

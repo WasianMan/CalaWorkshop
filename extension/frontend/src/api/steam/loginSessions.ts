@@ -35,6 +35,20 @@ export type BeginPasswordInput = {
   guardCode?: string | null;
 };
 
+/** Map the helper's raw snake_case session view to the camelCase type. */
+const sessionFromWire = (s: any): LoginSession => ({
+  id: s.id,
+  method: s.method,
+  state: s.state,
+  username: s.username ?? null,
+  error: s.error ?? null,
+  errorKind: s.error_kind ?? null,
+  guardHint: s.guard_hint ?? null,
+  challengeUrl: s.challenge_url ?? null,
+  qrSvg: s.qr_svg ?? null,
+  verified: s.verified ?? false,
+});
+
 export async function beginPasswordSession(input: BeginPasswordInput): Promise<LoginSession> {
   const { data } = await axiosInstance.post(`/api/client/calaworkshop/steam/login-sessions`, {
     label: input.label,
@@ -42,21 +56,21 @@ export async function beginPasswordSession(input: BeginPasswordInput): Promise<L
     password: input.password,
     guard_code: input.guardCode ?? null,
   });
-  return data;
+  return sessionFromWire(data);
 }
 
 export async function beginQrSession(label: string): Promise<LoginSession> {
   const { data } = await axiosInstance.post(`/api/client/calaworkshop/steam/login-sessions/qr`, {
     label,
   });
-  return data;
+  return sessionFromWire(data);
 }
 
 export async function getLoginSession(id: string, label: string): Promise<LoginSession> {
   const { data } = await axiosInstance.get(
     `/api/client/calaworkshop/steam/login-sessions/${encodeURIComponent(id)}?label=${encodeURIComponent(label)}`,
   );
-  return data;
+  return sessionFromWire(data);
 }
 
 export async function cancelLoginSession(id: string, label: string): Promise<void> {

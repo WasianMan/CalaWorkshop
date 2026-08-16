@@ -13,7 +13,7 @@ export default async (serverUuid: string): Promise<WorkshopArchive[]> => {
   );
   return (data.archives ?? []).map((a: any) => ({
     file: a.file,
-    itemCount: a.itemCount ?? 0,
-    createdUnix: a.createdUnix ?? 0,
+    itemCount: a.item_count ?? 0,
+    createdUnix: a.created_unix ?? 0,
   }));
 };

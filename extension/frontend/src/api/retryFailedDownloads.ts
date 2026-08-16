@@ -14,5 +14,5 @@ export default async (serverUuid: string, account?: string | null): Promise<Retr
     `/api/client/servers/${serverUuid}/calaworkshop/downloads/retry`,
     { account: account ?? null },
   );
-  return { retried: data.retried ?? 0, stillFailed: data.stillFailed ?? 0 };
+  return { retried: data.retried ?? 0, stillFailed: data.still_failed ?? 0 };
 };

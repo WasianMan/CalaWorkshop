@@ -22,5 +22,5 @@ export default async (serverUuid: string, input: StartDownloadInput): Promise<St
     archive: input.archive ?? false,
     install_path: input.installPath ?? null,
   });
-  return data;
+  return { jobId: data.job_id, state: data.state };
 };

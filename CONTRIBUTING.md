@@ -67,8 +67,11 @@ Bump `helper/Cargo.toml`, `extension/backend/Cargo.toml`, and
 - Match the surrounding code style; run formatters before committing.
 - Extension routes follow the file-tree-mirrors-URL-tree convention (a `mod.rs` per
   directory; `_param_` files for path parameters).
-- Frontend request bodies are sent **snake_case** (the panel does not transform request
-  bodies, only responses).
+- The panel (≥ 1.1) does not transform request or response bodies. Requests are
+  sent **snake_case** to match the Rust handlers, and responses arrive with the
+  backend's raw keys — the `extension/frontend/src/api/*` wrappers map wire keys
+  to the camelCase TypeScript types, so page components never touch wire shapes.
+  (Panel 1.0.x used to camelCase responses globally; do not rely on that.)
 
 ## License
 

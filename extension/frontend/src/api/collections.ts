@@ -46,5 +46,11 @@ export async function installCollection(
       install_path: input.installPath ?? null,
     },
   );
-  return data;
+  return {
+    collectionId: data.collectionId ?? input.collectionId,
+    // The response envelope is camelCase, but the nested job rows come from the
+    // downloads route and keep their raw snake_case `job_id`.
+    jobs: (data.jobs ?? []).map((j: any) => ({ jobId: j.job_id, state: j.state })),
+    skipped: data.skipped ?? [],
+  };
 }

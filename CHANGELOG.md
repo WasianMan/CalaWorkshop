@@ -34,6 +34,15 @@ bulk history clearing, and updates the extension for Calagopus panel 1.1.x.
 - Steam Guard code entry now hints where the code is (emailed code vs the
   rotating 5-character code on the app's Steam Guard tab).
 
+### Fixed
+- **Panel 1.1.x response-shape compatibility.** Panel 1.1 removed the global
+  axios interceptor that camelCased every API response, so responses now arrive
+  with the backend's raw snake_case keys. This hard-crashed the admin
+  configuration page ("Cannot read properties of undefined (reading 'map')" —
+  `gamePresets` was undefined) and quietly broke pagination, job metadata,
+  installed-content fields, and collection job ids. Every frontend API wrapper
+  now maps wire keys explicitly; page components keep their camelCase types.
+
 ### Changed
 - **Requires Calagopus panel ≥ 1.1.0** (`Metadata.toml` now enforces it). The
   panel's wings-api file-listing binding changed shape in 1.1.0; the installed
